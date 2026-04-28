@@ -3,6 +3,7 @@ package yamlprofile
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 	"modbus-mqtt-consumer/internal/core/domain"
@@ -47,45 +48,73 @@ type profilesFile struct {
 
 // Match finds the best matching profile for a payload.
 func (r *Registry) Match(payload domain.RawTelemetryPayload) (*domain.DeviceProfile, error) {
-	// 1. Explicit profile_id from payload
 	if payload.ProfileID != "" {
-		if p, ok := r.profiles[payload.ProfileID]; ok {
-			return &p, nil
+		if profile, ok := r.profiles[payload.ProfileID]; ok {
+			return cloneProfile(profile), nil
 		}
 	}
 
-	// 2. Exact device_id mapping
-	for _, p := range r.profiles {
-		if p.Match.DeviceIDExact != "" && p.Match.DeviceIDExact == payload.DeviceID {
-			return &p, nil
-		}
+	if profile := r.matchByExactDeviceID(payload.DeviceID); profile != nil {
+		return cloneProfile(*profile), nil
 	}
 
-	// 3. device_id prefix / regex match
-	for _, p := range r.profiles {
-		if p.Match.DeviceIDPrefix != "" && len(payload.DeviceID) >= len(p.Match.DeviceIDPrefix) {
-			if payload.DeviceID[:len(p.Match.DeviceIDPrefix)] == p.Match.DeviceIDPrefix {
-				return &p, nil
-			}
-		}
+	if profile := r.matchByDevicePrefix(payload.DeviceID); profile != nil {
+		return cloneProfile(*profile), nil
 	}
 
-	// 4. register_type + address + count match
-	for _, p := range r.profiles {
-		if p.Match.RegisterType != "" && p.Match.RegisterType != payload.RegisterType {
-			continue
-		}
-		if p.Match.Address != 0 && p.Match.Address != payload.Address {
-			continue
-		}
-		if p.Match.Count != 0 && p.Match.Count != payload.Count {
-			continue
-		}
-		return &p, nil
+	if profile := r.matchByRegisters(payload); profile != nil {
+		return cloneProfile(*profile), nil
 	}
 
-	// 5. Unknown profile fallback - return nil to indicate unknown
 	return nil, nil
+}
+
+func (r *Registry) matchByExactDeviceID(deviceID string) *domain.DeviceProfile {
+	for _, profile := range r.profiles {
+		if profile.Match.DeviceIDExact == deviceID && deviceID != "" {
+			p := profile
+			return &p
+		}
+	}
+
+	return nil
+}
+
+func (r *Registry) matchByDevicePrefix(deviceID string) *domain.DeviceProfile {
+	for _, profile := range r.profiles {
+		if profile.Match.DeviceIDPrefix == "" || deviceID == "" {
+			continue
+		}
+		if strings.HasPrefix(deviceID, profile.Match.DeviceIDPrefix) {
+			p := profile
+			return &p
+		}
+	}
+
+	return nil
+}
+
+func (r *Registry) matchByRegisters(payload domain.RawTelemetryPayload) *domain.DeviceProfile {
+	for _, profile := range r.profiles {
+		if profile.Match.RegisterType != "" && profile.Match.RegisterType != payload.RegisterType {
+			continue
+		}
+		if profile.Match.Address != 0 && profile.Match.Address != payload.Address {
+			continue
+		}
+		if profile.Match.Count != 0 && profile.Match.Count != payload.Count {
+			continue
+		}
+		p := profile
+		return &p
+	}
+
+	return nil
+}
+
+func cloneProfile(profile domain.DeviceProfile) *domain.DeviceProfile {
+	p := profile
+	return &p
 }
 
 // Transform converts raw values to metrics using the matched profile.
