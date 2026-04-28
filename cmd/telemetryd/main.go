@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"modbus-mqtt-consumer/internal/platform/config"
 	"modbus-mqtt-consumer/internal/platform/logging"
@@ -19,7 +22,8 @@ func main() {
 	logger := logging.New(cfg.Service.LogLevel)
 	logger.Info("starting telemetry service")
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// Create app
 	app := runtime.NewApp(cfg, logger)
@@ -41,7 +45,7 @@ func main() {
 
 	// Add HTTP server
 	app.AddComponentFunc("http-server", func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), 10)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return wiring.HTTPServer.Shutdown(ctx)
 	})

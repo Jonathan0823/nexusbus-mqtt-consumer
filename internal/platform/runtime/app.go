@@ -63,6 +63,7 @@ func (a *App) Run(ctx context.Context) error {
 	// Run shutdown manager in background
 	runCtx := a.shutdownMgr.Run(ctx)
 	<-runCtx.Done()
+	a.shutdownMgr.Wait()
 
 	a.logger.Info("application stopped")
 	return nil
