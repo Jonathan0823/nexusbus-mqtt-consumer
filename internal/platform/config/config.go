@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 // Config holds all configuration for the telemetry service.
@@ -79,6 +81,7 @@ type HTTPConfig struct {
 
 // Load reads configuration from environment variables.
 func Load() (*Config, error) {
+	godotenv.Load()
 	cfg := Default()
 
 	// Override with environment variables
