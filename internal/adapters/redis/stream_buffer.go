@@ -36,11 +36,14 @@ type Config struct {
 
 // NewStreamBuffer creates a new Redis Stream buffer.
 func NewStreamBuffer(cfg Config, logger *logging.Logger) (*StreamBuffer, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr:     cfg.Addr,
-		Password: cfg.Password,
-		DB:       cfg.DB,
-	})
+	options, err := redis.ParseURL(cfg.Addr)
+	if err != nil {
+		options = &redis.Options{Addr: cfg.Addr}
+	}
+	options.Password = cfg.Password
+	options.DB = cfg.DB
+
+	client := redis.NewClient(options)
 
 	// Ping to verify connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -51,7 +54,7 @@ func NewStreamBuffer(cfg Config, logger *logging.Logger) (*StreamBuffer, error) 
 	}
 
 	// Create consumer group if it doesn't exist
-	err := client.XGroupCreateMkStream(ctx, cfg.Stream, cfg.Group, "0").Err()
+	err = client.XGroupCreateMkStream(ctx, cfg.Stream, cfg.Group, "0").Err()
 	if err != nil && err.Error() != "BUSYGROUP Consumer Group name already exists" {
 		logger.Warn("redis group creation", "error", err)
 	}
