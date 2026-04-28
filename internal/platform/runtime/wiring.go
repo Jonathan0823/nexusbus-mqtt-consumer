@@ -79,11 +79,6 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 	}
 	w.PostgresRepo = postgresRepo
 
-	// Ensure schema
-	if err := postgresRepo.EnsureSchema(ctx); err != nil {
-		return nil, fmt.Errorf("postgres schema: %w", err)
-	}
-
 	// Profile Registry
 	profileReg, err := yamlprofile.NewRegistry(cfg.Profiles.Path, logger)
 	if err != nil {

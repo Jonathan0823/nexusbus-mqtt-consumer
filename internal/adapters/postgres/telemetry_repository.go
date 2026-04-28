@@ -51,52 +51,6 @@ func NewRepository(ctx context.Context, cfg Config, logger *logging.Logger) (*Re
 	}, nil
 }
 
-// EnsureSchema creates the required tables if they don't exist.
-func (r *Repository) EnsureSchema(ctx context.Context) error {
-	// Main telemetry table
-	schema := `
-		CREATE TABLE IF NOT EXISTS telemetry_enriched (
-			time             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			received_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			device_id        VARCHAR(80) NOT NULL,
-			profile_id       VARCHAR(80) NOT NULL,
-			register_type    VARCHAR(20),
-			address          INTEGER,
-			count            INTEGER,
-			source           VARCHAR(20),
-			idempotency_key  TEXT NOT NULL,
-			metrics          JSONB NOT NULL,
-			raw_payload      JSONB,
-			inserted_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		);
-		
-		CREATE TABLE IF NOT EXISTS telemetry_ingest_dedupe (
-			idempotency_key TEXT PRIMARY KEY,
-			first_seen_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		);
-		
-		CREATE INDEX IF NOT EXISTS ix_telemetry_device_time 
-			ON telemetry_enriched (device_id, time DESC);
-		
-		CREATE INDEX IF NOT EXISTS ix_telemetry_profile_time 
-			ON telemetry_enriched (profile_id, time DESC);
-		
-		CREATE INDEX IF NOT EXISTS ix_telemetry_metrics 
-			ON telemetry_enriched USING GIN (metrics);
-		
-		CREATE INDEX IF NOT EXISTS ix_telemetry_idempotency 
-			ON telemetry_enriched (idempotency_key);
-	`
-
-	_, err := r.pool.Exec(ctx, schema)
-	if err != nil {
-		return fmt.Errorf("ensure schema: %w", err)
-	}
-
-	r.logger.Info("postgres schema ensured")
-	return nil
-}
-
 // InsertBatchIdempotent inserts a batch of telemetry rows idempotently.
 func (r *Repository) InsertBatchIdempotent(ctx context.Context, rows []domain.EnrichedTelemetry) (int, error) {
 	if len(rows) == 0 {
