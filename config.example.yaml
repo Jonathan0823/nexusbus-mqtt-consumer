@@ -1,0 +1,53 @@
+# Telemetry Ingestion Service Configuration Example
+# Copy to config.yaml and customize for your environment
+
+service:
+  name: "telemetry-ingestion-service"
+  instance_id: "host01"
+  log_level: "info"
+
+# MQTT broker connection (Edge Gateway → Service)
+mqtt:
+  broker: "tcp://localhost:1883"
+  client_id: "telemetry-ingestion-service"
+  topic: "telemetry/raw/#"
+  qos: 1
+  clean_session: false
+  # username: ""       # optional
+  # password: ""     # set via MQTT_PASSWORD env var
+  session_expiry: "168h"  # 7 days
+
+# Redis stream buffer
+redis:
+  addr: "localhost:6379"
+  # password: ""     # set via REDIS_PASSWORD env var
+  db: 0
+  stream: "telemetry_stream"
+  deadletter_stream: "telemetry_deadletter_stream"
+  group: "telemetry_workers"
+  consumer: "host01-worker"
+  read_count: 500
+  block_time: "1s"
+  min_idle_time: "60s"
+
+# PostgreSQL persistence
+postgres:
+  # dsn: ""          # set via POSTGRES_DSN env var
+  max_write_conns: 10
+  max_read_conns: 5
+  batch_size: 500
+  batch_timeout: "1s"
+
+# Device profiles (static mapping)
+profiles:
+  path: "./profiles.yaml"
+
+# Worker behavior
+worker:
+  max_retries: 5
+  retry_backoff_initial: "1s"
+  retry_backoff_max: "60s"
+
+# HTTP server (health/readiness/metrics)
+http:
+  listen_addr: ":8080"

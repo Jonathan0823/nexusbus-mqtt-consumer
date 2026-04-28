@@ -1,0 +1,66 @@
+# Device Profile Registry
+# Maps raw Modbus register values to semantic metrics
+
+profiles:
+  # Example: 9-register power meter (office energy monitor)
+  power_meter_9:
+    match:
+      register_type: "input"
+      address: 0
+      count: 9
+      device_id_prefix: "office-"
+
+    mapping:
+      - index: 0
+        key: "voltage_r"
+        type: "uint16"
+        multiplier: 0.01
+        unit: "V"
+
+      - index: 1
+        key: "current_r"
+        type: "uint16"
+        multiplier: 0.01
+        unit: "A"
+
+      - index: 2
+        key: "power_r"
+        type: "uint16"
+        multiplier: 0.01
+        unit: "W"
+
+      - index: 3
+        key: "voltage_s"
+        type: "uint16"
+        multiplier: 0.01
+        unit: "V"
+
+      - index: 4
+        key: "current_s"
+        type: "uint16"
+        multiplier: 0.01
+        unit: "A"
+
+      - index: 5
+        key: "power_total"
+        type: "uint16"
+        multiplier: 0.01
+        unit: "W"
+
+      - index: 6
+        key: "frequency"
+        type: "uint16"
+        multiplier: 0.1
+        unit: "Hz"
+
+      - index: 7
+        key: "power_factor"
+        type: "uint16"
+        multiplier: 0.001
+        unit: ""
+
+      - index: 8
+        key: "alarm_status"
+        type: "uint16"
+        multiplier: 1
+        unit: ""
