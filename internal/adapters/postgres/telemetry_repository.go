@@ -113,9 +113,13 @@ func (r *Repository) InsertBatchIdempotent(ctx context.Context, rows []domain.En
 	inserted := 0
 
 	for _, row := range rows {
+		if row.IdempotencyKey == "" {
+			return inserted, fmt.Errorf("idempotency key required")
+		}
+
 		// Try to insert idempotency key first
 		dedupeKey := row.IdempotencyKey
-		_, err := tx.Exec(ctx,
+		result, err := tx.Exec(ctx,
 			"INSERT INTO telemetry_ingest_dedupe (idempotency_key, first_seen_at) VALUES ($1, NOW()) ON CONFLICT (idempotency_key) DO NOTHING",
 			dedupeKey,
 		)
@@ -124,19 +128,8 @@ func (r *Repository) InsertBatchIdempotent(ctx context.Context, rows []domain.En
 			return inserted, fmt.Errorf("insert dedupe key: %w", err)
 		}
 
-		// Check if it was a duplicate
-		var exists bool
-		err = tx.QueryRow(ctx,
-			"SELECT EXISTS(SELECT 1 FROM telemetry_ingest_dedupe WHERE idempotency_key = $1)",
-			dedupeKey,
-		).Scan(&exists)
-
-		if err != nil {
-			return inserted, fmt.Errorf("check dedupe: %w", err)
-		}
-
-		if !exists {
-			// Duplicate - skip this row
+		// Duplicate - skip this row if the key already existed.
+		if result.RowsAffected() == 0 {
 			continue
 		}
 
@@ -148,7 +141,10 @@ func (r *Repository) InsertBatchIdempotent(ctx context.Context, rows []domain.En
 
 		var rawPayloadJSON []byte
 		if row.RawPayload != nil {
-			rawPayloadJSON, _ = json.Marshal(*row.RawPayload)
+			rawPayloadJSON, err = json.Marshal(*row.RawPayload)
+			if err != nil {
+				return inserted, fmt.Errorf("marshal raw payload: %w", err)
+			}
 		}
 
 		_, err = tx.Exec(ctx,
