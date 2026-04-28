@@ -18,6 +18,7 @@ type StreamBuffer struct {
 	deadletterStream string
 	group            string
 	consumer         string
+	blockTime        time.Duration
 	logger           *logging.Logger
 }
 
@@ -30,6 +31,7 @@ type Config struct {
 	DeadletterStream string
 	Group            string
 	Consumer         string
+	BlockTime        time.Duration
 }
 
 // NewStreamBuffer creates a new Redis Stream buffer.
