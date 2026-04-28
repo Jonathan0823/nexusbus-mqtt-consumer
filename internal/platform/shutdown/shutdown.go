@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,6 +18,7 @@ type Manager struct {
 	waitTimeout time.Duration
 	done        chan struct{}
 	components  []Component
+	once        sync.Once
 }
 
 // Component is a component that can be shut down.
@@ -50,6 +52,7 @@ func (m *Manager) Run(ctx context.Context) context.Context {
 	go func() {
 		sigChan := make(chan os.Signal, len(m.signals))
 		signal.Notify(sigChan, m.signals...)
+		defer signal.Stop(sigChan)
 
 		select {
 		case sig := <-sigChan:
@@ -57,6 +60,7 @@ func (m *Manager) Run(ctx context.Context) context.Context {
 			cancel()
 			m.shutdown()
 		case <-ctx.Done():
+			m.shutdown()
 		}
 	}()
 
@@ -65,17 +69,20 @@ func (m *Manager) Run(ctx context.Context) context.Context {
 
 // shutdown performs graceful shutdown of all components.
 func (m *Manager) shutdown() {
-	m.logger.Info("starting graceful shutdown", "components", len(m.components))
+	m.once.Do(func() {
+		m.logger.Info("starting graceful shutdown", "components", len(m.components))
 
-	for _, c := range m.components {
-		m.logger.Info("stopping component", "name", c.Name())
-		if err := c.Close(); err != nil {
-			m.logger.Error("component close error", "name", c.Name(), "error", err)
+		for i := len(m.components) - 1; i >= 0; i-- {
+			c := m.components[i]
+			m.logger.Info("stopping component", "name", c.Name())
+			if err := c.Close(); err != nil {
+				m.logger.Error("component close error", "name", c.Name(), "error", err)
+			}
 		}
-	}
 
-	m.logger.Info("graceful shutdown complete")
-	close(m.done)
+		m.logger.Info("graceful shutdown complete")
+		close(m.done)
+	})
 }
 
 // Done returns a channel that is closed when shutdown is complete.
@@ -85,5 +92,14 @@ func (m *Manager) Done() <-chan struct{} {
 
 // Wait blocks until shutdown is complete.
 func (m *Manager) Wait() {
-	<-m.done
+	if m.waitTimeout <= 0 {
+		<-m.done
+		return
+	}
+
+	select {
+	case <-m.done:
+	case <-time.After(m.waitTimeout):
+		m.logger.Warn("shutdown wait timed out")
+	}
 }

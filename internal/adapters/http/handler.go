@@ -13,6 +13,7 @@ import (
 type Handler struct {
 	logger         *logging.Logger
 	metrics        *metrics.Recorder
+	mqttPing       func() error
 	redisPing      func() error
 	postgresPing   func() error
 	profilesLoaded bool
@@ -22,6 +23,7 @@ type Handler struct {
 func NewHandler(
 	logger *logging.Logger,
 	metrics *metrics.Recorder,
+	mqttPing func() error,
 	redisPing func() error,
 	postgresPing func() error,
 	profilesLoaded bool,
@@ -29,6 +31,7 @@ func NewHandler(
 	return &Handler{
 		logger:         logger,
 		metrics:        metrics,
+		mqttPing:       mqttPing,
 		redisPing:      redisPing,
 		postgresPing:   postgresPing,
 		profilesLoaded: profilesLoaded,
@@ -49,6 +52,16 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 
 	checks := make(map[string]string)
 	allHealthy := true
+
+	// Check Redis
+	if h.mqttPing != nil {
+		if err := h.mqttPing(); err != nil {
+			checks["mqtt"] = "unhealthy: " + err.Error()
+			allHealthy = false
+		} else {
+			checks["mqtt"] = "healthy"
+		}
+	}
 
 	// Check Redis
 	if h.redisPing != nil {

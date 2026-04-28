@@ -61,6 +61,7 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 		DeadletterStream: cfg.Redis.DeadletterStream,
 		Group:            cfg.Redis.Group,
 		Consumer:         cfg.Redis.Consumer,
+		BlockTime:        cfg.Redis.BlockTime,
 	}, logger)
 	if err != nil {
 		return nil, fmt.Errorf("redis connection: %w", err)
@@ -119,6 +120,12 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 	w.HTTPHandler = httphandler.NewHandler(
 		logger,
 		w.Metrics,
+		func() error {
+			if w.MQTTSubscriber == nil || !w.MQTTSubscriber.IsConnected() {
+				return fmt.Errorf("mqtt disconnected")
+			}
+			return nil
+		},
 		func() error { return w.RedisBuffer.Ping(ctx) },
 		func() error { return w.PostgresRepo.Ping(ctx) },
 		true,
@@ -161,7 +168,12 @@ func (w *Wiring) StartHTTPServer() error {
 // StartWorkerLoop starts the background worker processing loop.
 func (w *Wiring) StartWorkerLoop(ctx context.Context) {
 	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
+		interval := w.Cfg.Postgres.BatchTimeout
+		if interval <= 0 {
+			interval = 100 * time.Millisecond
+		}
+
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		for {
