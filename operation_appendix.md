@@ -517,15 +517,65 @@ application maintenance job
 
 ---
 
-## 10. Open Questions
+## 10. Resolved / Pending Design Decisions
 
-1. Will Edge Gateway always send `timestamp`?
-2. Will Edge Gateway generate `message_id`, or should backend always generate it?
-3. Which MQTT Go library will be used, and does it support manual ACK?
-4. What is the expected telemetry rate per device and total devices?
-5. What is the maximum expected PostgreSQL downtime to buffer in Redis?
-6. What is the required retention period?
-7. Should raw payload always be stored, or only for unknown/error cases?
-8. Should profiles support multi-register decoding in v1?
-9. Should unknown profiles be stored in main table or separate raw table?
-10. Will deployment run one process only or multiple instances of the same binary?
+Based on current project assumptions, the following decisions are recorded for v1.
+
+| No. | Question                                                                       | Current Answer / Decision                                                                                                                                                                             | Status            |
+| --: | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+|   1 | Will Edge Gateway always send `timestamp`?                                     | Yes. Current payload sends numeric Unix epoch timestamp with fractional seconds, for example `1777357182.6396542`. Backend must normalize this to UTC `TIMESTAMPTZ`.                                  | Decided           |
+|   2 | Will Edge Gateway generate `message_id`, or should backend generate it?        | Backend should generate the deterministic `idempotency_key` from payload fields. Recommended key input: `device_id + timestamp_utc + register_type + address + count`.                                | Decided           |
+|   3 | Which MQTT Go library will be used, and does it support manual ACK?            | Not decided yet. This must be checked before finalizing the MQTT reliability guarantee.                                                                                                               | Pending           |
+|   4 | What is the expected telemetry rate per device and total devices?              | Current deployment has 4 devices. Exact interval/rate still needs confirmation.                                                                                                                       | Partially decided |
+|   5 | What is the maximum expected PostgreSQL downtime to buffer in Redis?           | Not decided yet. For v1, design Redis capacity for at least several hours of downtime.                                                                                                                | Pending           |
+|   6 | What is the required retention period?                                         | Retention means how long historical telemetry data is stored before deletion or archival. Recommended v1 default: keep raw telemetry for 1 year unless storage constraints require shorter retention. | Proposed          |
+|   7 | Should raw payload always be stored, or only for unknown/error cases?          | Store raw payload only for error, invalid, deadletter, or unknown-profile cases. Normal successful rows store enriched `metrics` only.                                                                | Decided           |
+|   8 | Should profiles support multi-register decoding in v1?                         | Multi-register decoding means one metric is built from more than one Modbus register, such as `uint32`, `int32`, or `float32`. For v1, support can be deferred unless current devices need it.        | Proposed          |
+|   9 | Should unknown profiles be stored in main table or separate raw table?         | Not fully decided. Recommended v1: store unknown profile in main table with `profile_id = "unknown"` and `metrics = {"raw_values": [...]}`.                                                           | Proposed          |
+|  10 | Will deployment run one process only or multiple instances of the same binary? | For now, run as one single binary process with `role=all`. Keep role-based architecture so it can be split later without creating another binary artifact.                                            | Decided           |
+
+---
+
+## 11. Example Current Payload
+
+Current Edge/MQTT payload example:
+
+```json
+{
+  "device_id": "office-eng",
+  "register_type": "input",
+  "address": 0,
+  "count": 9,
+  "values": [2239, 643, 0, 1057, 0, 55290, 4, 499, 73],
+  "timestamp": 1777357182.6396542
+}
+```
+
+Timestamp interpretation:
+
+```text
+1777357182.6396542 = Unix epoch seconds with fractional milliseconds/microseconds
+```
+
+Backend handling:
+
+```text
+1. Parse numeric timestamp as Unix epoch seconds.
+2. Convert to UTC time.
+3. Store into telemetry_enriched.time as TIMESTAMPTZ.
+4. Use normalized timestamp as part of idempotency_key.
+```
+
+Recommended idempotency source string for this payload shape:
+
+```text
+{device_id}|{timestamp_utc}|{register_type}|{address}|{count}
+```
+
+Example conceptual string:
+
+```text
+office-eng|2026-04-28Txx:xx:xx.xxxxxxZ|input|0|9
+```
+
+Then hash with SHA-256 before storing as `idempotency_key`.
