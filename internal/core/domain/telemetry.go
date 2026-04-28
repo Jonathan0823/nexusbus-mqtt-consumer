@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -80,14 +81,26 @@ type EnrichedTelemetry struct {
 	RawPayload     *json.RawMessage `json:"raw_payload,omitempty"`
 }
 
-// IdempotencyKey builds a deterministic key from payload fields.
-// Format: SHA256(device_id|timestamp_utc|register_type|address|count)
-func IdempotencyKey(payload RawTelemetryPayload, normalizedTime time.Time) string {
-	// Use normalized time in UTC for consistency
+// BuildIdempotencyKey creates a deterministic key for duplicate prevention.
+// Priority: message_id (if present) → fallback to deterministic combination.
+// The same payload must always produce the same key.
+func BuildIdempotencyKey(payload RawTelemetryPayload, normalizedTime time.Time) string {
+	// 1. Use message_id directly if provided
+	if payload.MessageID != "" {
+		return HashString(payload.MessageID)
+	}
+
+	// 2. Fallback: deterministic key from available fields
+	// Prefer: device_id + timestamp_utc + profile_id
+	// Otherwise: device_id + timestamp_utc + register_type + address + count
 	timeStr := normalizedTime.UTC().Format(time.RFC3339Nano)
-	keyStr := payload.DeviceID + "|" + timeStr + "|" + payload.RegisterType + "|" +
-		string(rune(payload.Address+'0')) + "|" + string(rune(payload.Count+'0'))
-	return HashString(keyStr)
+
+	if payload.ProfileID != "" {
+		return HashString(fmt.Sprintf("%s|%s|%s", payload.DeviceID, timeStr, payload.ProfileID))
+	}
+
+	// Fallback: register_type + address + count
+	return HashString(fmt.Sprintf("%s|%s|%s|%d|%d", payload.DeviceID, timeStr, payload.RegisterType, payload.Address, payload.Count))
 }
 
 // NormalizeTimestamp converts Unix epoch timestamp from payload to time.Time.
