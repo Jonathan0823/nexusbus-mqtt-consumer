@@ -1,40 +1,106 @@
-# MQTT Consumer with Redis Streams and PostgreSQL
+# Telemetry Ingestion Pipeline
+
+Single Go binary for MQTT-ingested Modbus telemetry, Redis Streams buffering, and PostgreSQL persistence.
+
+## Flow
 
 ```mermaid
-graph TD
-    %% Define External Entities
-    subgraph "Field / Edge Environment"
-        D1[Device 1: Modbus]
-        D2[Device 2: Modbus]
-        D3[Device 3: Modbus]
-        D4[Device 4: Modbus]
-        GW[Edge Middleware\nModbus-to-MQTT Gateway]
-    end
-
-    MQTT_B[MQTT Broker\nMosquitto]
-    R_S[(Redis Stream\n'telemetry_stream')]
-    P_DB[(Postgres DB\nTimescaleDB)]
-
-    %% Define Deployment Boundary
-    subgraph "Single Go Binary (The Monolith)"
-        G_C[Goroutine A:\nMQTT Ingestor]
-        G_W[Goroutine B:\nBackground Worker]
-    end
-
-    %% Define Connections
-    D1 -.->|Modbus RTU/TCP Polling| GW
-    D2 -.->|Modbus RTU/TCP Polling| GW
-    D3 -.->|Modbus RTU/TCP Polling| GW
-    D4 -.->|Modbus RTU/TCP Polling| GW
-
-    GW -->|Publish JSON Payload| MQTT_B
-
-    MQTT_B -->|Push Message| G_C
-
-    %% The Critical Decoupling Phase
-    G_C -->|Network I/O: XADD| R_S
-    R_S -.->|Network I/O: XREADGROUP| G_W
-
-    G_W -->|Network I/O: Batch Insert| P_DB
-
+flowchart LR
+    EG[Edge Gateway<br/>Modbus Polling] -->|MQTT QoS 1<br/>Raw JSON Payload| MQTT[Mosquitto MQTT Broker]
+    MQTT -->|Subscribe| ING[Go Binary<br/>MQTT Ingestor]
+    ING -->|XADD| REDIS[(Redis Stream<br/>telemetry_stream)]
+    REDIS -->|XREADGROUP / XAUTOCLAIM| WK[Go Binary<br/>Worker + Enrichment Engine]
+    WK -->|Batch Insert<br/>Transaction| PG[(PostgreSQL)]
+    WK -->|Invalid / Max Retry| DLQ[(Redis Stream<br/>telemetry_deadletter_stream)]
+    WK -->|Health / Metrics| OBS[/"/healthz<br/>/readyz<br/>/metrics"/]
 ```
+
+## Features
+
+- MQTT ingest with Redis Streams buffering
+- Static `profiles.yaml` device registry
+- Idempotent PostgreSQL writes with dedupe table
+- Pending recovery via `XAUTOCLAIM`
+- Deadletter stream for permanent failures
+- `/healthz`, `/readyz`, `/metrics`
+- Env-only runtime config
+
+## Runtime Configuration
+
+Runtime settings come from environment variables only.
+
+Required basics:
+- `POSTGRES_DSN`
+- `REDIS_URL`
+- `MQTT_URL`
+
+Other common variables:
+- `SERVICE_NAME`
+- `INSTANCE_ID`
+- `LOG_LEVEL`
+- `HTTP_LISTEN_ADDR`
+- `MQTT_CLIENT_ID`
+- `MQTT_TOPIC`
+- `MQTT_USERNAME`
+- `MQTT_PASSWORD`
+- `REDIS_DB`
+- `REDIS_STREAM`
+- `REDIS_DEADLETTER_STREAM`
+- `REDIS_GROUP`
+- `REDIS_CONSUMER`
+- `REDIS_READ_COUNT`
+- `REDIS_BLOCK_TIME`
+- `REDIS_MIN_IDLE_TIME`
+- `POSTGRES_MAX_WRITE_CONNS`
+- `POSTGRES_MAX_READ_CONNS`
+- `POSTGRES_BATCH_SIZE`
+- `POSTGRES_BATCH_TIMEOUT`
+- `WORKER_MAX_RETRIES`
+- `WORKER_RETRY_BACKOFF_INITIAL`
+- `WORKER_RETRY_BACKOFF_MAX`
+- `PROFILES_PATH`
+
+See `.env.example` for a full example.
+
+## Device Profiles
+
+`profiles.yaml` contains the static profile registry used by the worker to map raw register values into semantic metrics.
+
+## Database Migrations
+
+Use plain PostgreSQL SQL files under `migrations/`:
+
+- `001_create_telemetry_enriched.sql`
+- `002_create_telemetry_ingest_dedupe.sql`
+- `003_create_indexes.sql`
+
+Run migrations before starting the service.
+
+## Run
+
+```bash
+go run ./cmd/telemetryd
+```
+
+## Endpoints
+
+- `GET /healthz`
+- `GET /readyz`
+- `GET /metrics`
+
+## Project Structure
+
+```text
+cmd/telemetryd              # Entry point
+internal/core               # Domain, ports, services
+internal/adapters           # MQTT, Redis, PostgreSQL, HTTP, YAML profile loader
+internal/platform           # config, logging, metrics, shutdown, runtime
+migrations/                 # PostgreSQL SQL migrations
+profiles.yaml               # Static device profile registry
+```
+
+## Notes
+
+- No `config.yaml` runtime file is used.
+- TimescaleDB is not required for v1; PostgreSQL is enough.
+- The worker uses idempotent writes and retry-aware deadlettering.
