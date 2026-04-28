@@ -1,6 +1,8 @@
 package yamlprofile
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"modbus-mqtt-consumer/internal/core/domain"
@@ -50,5 +52,46 @@ func TestMatchReturnsNilForUnknownProfile(t *testing.T) {
 	}
 	if profile != nil {
 		t.Fatal("expected nil profile for unknown payload")
+	}
+}
+
+func TestNewRegistryParsesMapProfiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "profiles.yaml")
+	yaml := []byte(`profiles:
+  power_meter_9:
+    match:
+      device_id_prefix: "office-"
+    mapping: []
+  power_meter_3:
+    match:
+      device_id_prefix: "lab-"
+    mapping: []
+`)
+	if err := os.WriteFile(path, yaml, 0o600); err != nil {
+		t.Fatalf("write profiles: %v", err)
+	}
+
+	r, err := NewRegistry(path, logging.New("error"))
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+
+	profile, err := r.Match(domain.RawTelemetryPayload{DeviceID: "office-a"})
+	if err != nil {
+		t.Fatalf("match failed: %v", err)
+	}
+	if profile == nil || profile.ID != "power_meter_9" {
+		t.Fatalf("expected power_meter_9, got %#v", profile)
+	}
+
+	profile, err = r.Match(domain.RawTelemetryPayload{DeviceID: "lab-a"})
+	if err != nil {
+		t.Fatalf("match failed: %v", err)
+	}
+	if profile == nil || profile.ID != "power_meter_3" {
+		t.Fatalf("expected power_meter_3, got %#v", profile)
 	}
 }

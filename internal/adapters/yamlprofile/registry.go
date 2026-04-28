@@ -29,8 +29,9 @@ func NewRegistry(path string, logger *logging.Logger) (*Registry, error) {
 	}
 
 	profiles := make(map[string]domain.DeviceProfile)
-	for _, p := range file.Profiles {
-		profiles[p.ID] = p
+	for id, p := range file.Profiles {
+		p.ID = id
+		profiles[id] = p
 	}
 
 	logger.Info("profile registry loaded", "count", len(profiles))
@@ -43,7 +44,7 @@ func NewRegistry(path string, logger *logging.Logger) (*Registry, error) {
 
 // profilesFile is the top-level structure of profiles.yaml.
 type profilesFile struct {
-	Profiles []domain.DeviceProfile `yaml:"profiles"`
+	Profiles map[string]domain.DeviceProfile `yaml:"profiles"`
 }
 
 // Match finds the best matching profile for a payload.
