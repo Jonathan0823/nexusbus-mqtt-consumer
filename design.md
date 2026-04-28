@@ -36,6 +36,27 @@ Recommended Go project structure:
   /telemetryd
     main.go
 
+/configs
+  config.example.yaml
+  profiles.example.yaml
+
+/migrations
+  001_create_telemetry_enriched.sql
+  002_create_telemetry_ingest_dedupe.sql
+  003_create_indexes.sql
+
+/deployments
+  /systemd
+    telemetry-service.service
+  /docker
+    Dockerfile
+    docker-compose.example.yaml
+
+/docs
+  prd.md
+  technical-design.md
+  operations-appendix.md
+
 /internal
   /core
     /domain
@@ -43,13 +64,13 @@ Recommended Go project structure:
       profile.go
       metric.go
       idempotency.go
-      error.go
+      query.go
+      errors.go
 
     /ports
       message_buffer.go
       telemetry_repository.go
       profile_registry.go
-      mqtt_subscriber.go
       metrics_recorder.go
       clock.go
 
@@ -58,51 +79,74 @@ Recommended Go project structure:
       worker_service.go
       query_service.go
       profile_service.go
+      errors.go
 
   /adapters
     /mqtt
       subscriber.go
+      message_handler.go
       config.go
+      errors.go
 
     /redis
+      client.go
       stream_buffer.go
       retry_tracker.go
+      config.go
+      errors.go
 
     /postgres
+      connection.go
       telemetry_repository.go
+      query_repository.go
       schema.go
-      migration.go
+      config.go
+      errors.go
 
     /http
+      server.go
       router.go
       api_handler.go
       health_handler.go
       metrics_handler.go
+      middleware.go
+      response.go
+      errors.go
 
     /yamlprofile
       registry.go
       parser.go
+      validator.go
+      errors.go
 
   /platform
     /config
       config.go
       env.go
       validation.go
+      defaults.go
 
     /logging
       logger.go
+      config.go
 
     /metrics
       prometheus.go
       recorder.go
+      registry.go
 
     /shutdown
-      shutdown.go
       signal.go
+      shutdown.go
+      group.go
 
     /runtime
-      role.go
+      app.go
       runner.go
+      wiring.go
+      role.go
+      lifecycle.go
+      closers.go
 ```
 
 ---
