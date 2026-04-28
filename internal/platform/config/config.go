@@ -44,14 +44,14 @@ type MQTTConfig struct {
 	QOS           int           `yaml:"qos"`
 	CleanSession  bool          `yaml:"clean_session"`
 	Username      string        `yaml:"username"`
-	PasswordEnv   string        `yaml:"password_env"`
+	Password      string        `yaml:"-"` // resolved from env
 	SessionExpiry time.Duration `yaml:"session_expiry"`
 }
 
 // RedisConfig holds Redis connection settings.
 type RedisConfig struct {
 	Addr             string        `yaml:"addr"`
-	PasswordEnv      string        `yaml:"password_env"`
+	Password         string        `yaml:"-"` // resolved from env
 	DB               int           `yaml:"db"`
 	Stream           string        `yaml:"stream"`
 	DeadletterStream string        `yaml:"deadletter_stream"`
@@ -64,7 +64,7 @@ type RedisConfig struct {
 
 // PostgresConfig holds PostgreSQL connection settings.
 type PostgresConfig struct {
-	DSNEnv        string        `yaml:"dsn_env"`
+	DSN           string        `yaml:"-"` // resolved from env
 	MaxWriteConns int           `yaml:"max_write_conns"`
 	MaxReadConns  int           `yaml:"max_read_conns"`
 	BatchSize     int           `yaml:"batch_size"`
@@ -166,25 +166,25 @@ func Validate(cfg *Config) error {
 	if cfg.Redis.Addr == "" {
 		return errors.New("redis.addr is required")
 	}
-	if cfg.Postgres.DSNEnv == "" {
-		return errors.New("postgres.dsn_env is required")
+	if cfg.Postgres.DSN == "" {
+		return errors.New("postgres DSN is required")
 	}
 	return nil
 }
 
 // applyEnvOverrides applies environment variable overrides.
 func applyEnvOverrides(cfg *Config) error {
-	// MQTT password
+	// Load MQTT password from env
 	if pwd := os.Getenv("MQTT_PASSWORD"); pwd != "" {
-		cfg.MQTT.PasswordEnv = pwd
+		cfg.MQTT.Password = pwd
 	}
-	// Redis password
+	// Load Redis password from env
 	if pwd := os.Getenv("REDIS_PASSWORD"); pwd != "" {
-		cfg.Redis.PasswordEnv = pwd
+		cfg.Redis.Password = pwd
 	}
-	// PostgreSQL DSN
+	// Load PostgreSQL DSN from env
 	if dsn := os.Getenv("POSTGRES_DSN"); dsn != "" {
-		cfg.Postgres.DSNEnv = dsn
+		cfg.Postgres.DSN = dsn
 	}
 	// Override with explicit env vars if set
 	if v := os.Getenv("MQTT_BROKER"); v != "" {

@@ -21,29 +21,15 @@ import (
 )
 
 func main() {
-	// Load configuration
+	// Load configuration (YAML + env overrides + validation)
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
 		configPath = "config.yaml"
 	}
 
-	cfg := config.Default()
-	if err := config.LoadFile(configPath, cfg); err != nil {
-		if !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "config load error: %v\n", err)
-			os.Exit(1)
-		}
-	}
-
-	// Override with env vars - use direct os.Getenv for simplicity
-	if err := applyEnvOverrides(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "config env error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Validate
-	if err := config.Validate(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "config validation error: %v\n", err)
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config load error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -61,10 +47,9 @@ func main() {
 	recorder := metrics.NewRecorder()
 
 	// --- Redis Stream Buffer ---
-	redisPassword := os.Getenv(cfg.Redis.PasswordEnv)
 	redisBuffer, err := redis.NewStreamBuffer(redis.Config{
 		Addr:             cfg.Redis.Addr,
-		Password:         redisPassword,
+		Password:         cfg.Redis.Password,
 		DB:               cfg.Redis.DB,
 		Stream:           cfg.Redis.Stream,
 		DeadletterStream: cfg.Redis.DeadletterStream,
@@ -77,9 +62,8 @@ func main() {
 	}
 
 	// --- PostgreSQL Repository ---
-	postgresDsn := os.Getenv(cfg.Postgres.DSNEnv)
 	postgresRepo, err := postgres.NewRepository(ctx, postgres.Config{
-		DSN:           postgresDsn,
+		DSN:           cfg.Postgres.DSN,
 		MaxWriteConns: cfg.Postgres.MaxWriteConns,
 		MaxReadConns:  cfg.Postgres.MaxReadConns,
 	}, logger)
@@ -106,7 +90,6 @@ func main() {
 	ingestSvc := service.NewIngestService(redisBuffer, logger)
 
 	// --- MQTT Subscriber ---
-	mqttPassword := os.Getenv(cfg.MQTT.PasswordEnv)
 	mqttSub := mqtt.NewSubscriber(mqtt.MQTTConfig{
 		Broker:       cfg.MQTT.Broker,
 		ClientID:     cfg.MQTT.ClientID,
@@ -114,7 +97,7 @@ func main() {
 		QOS:          byte(cfg.MQTT.QOS),
 		CleanSession: cfg.MQTT.CleanSession,
 		Username:     cfg.MQTT.Username,
-		Password:     mqttPassword,
+		Password:     cfg.MQTT.Password,
 		Timeout:      30 * time.Second,
 	}, logger)
 
@@ -191,36 +174,6 @@ func main() {
 	<-shutdownMgr.Done()
 
 	logger.Info("service stopped")
-}
-
-// applyEnvOverrides applies environment variable overrides to config.
-func applyEnvOverrides(cfg *config.Config) error {
-	if pwd := os.Getenv("MQTT_PASSWORD"); pwd != "" {
-		cfg.MQTT.PasswordEnv = pwd
-	}
-	if pwd := os.Getenv("REDIS_PASSWORD"); pwd != "" {
-		cfg.Redis.PasswordEnv = pwd
-	}
-	if dsn := os.Getenv("POSTGRES_DSN"); dsn != "" {
-		cfg.Postgres.DSNEnv = dsn
-	}
-	// Override with explicit env vars if set
-	if v := os.Getenv("MQTT_BROKER"); v != "" {
-		cfg.MQTT.Broker = v
-	}
-	if v := os.Getenv("REDIS_ADDR"); v != "" {
-		cfg.Redis.Addr = v
-	}
-	if v := os.Getenv("HTTP_LISTEN_ADDR"); v != "" {
-		cfg.HTTP.ListenAddr = v
-	}
-	if v := os.Getenv("LOG_LEVEL"); v != "" {
-		cfg.Service.LogLevel = v
-	}
-	if v := os.Getenv("INSTANCE_ID"); v != "" {
-		cfg.Service.InstanceID = v
-	}
-	return nil
 }
 
 // serviceComponent wraps a closer for shutdown.Manager.
