@@ -2,7 +2,6 @@
 # Maps raw Modbus register values to semantic metrics
 
 profiles:
-  # Example: 9-register power meter (office energy monitor)
   power_meter_9:
     match:
       register_type: "input"
