@@ -192,19 +192,59 @@ func (s *StreamBuffer) ClaimStale(ctx context.Context, minIdle time.Duration, ma
 	return messages, nil
 }
 
+// IncrementRetry increments the retry counter for a stream message.
+func (s *StreamBuffer) IncrementRetry(ctx context.Context, id string) (int, error) {
+	key := s.retryKey(id)
+	count, err := s.client.Incr(ctx, key).Result()
+	if err != nil {
+		return 0, fmt.Errorf("increment retry: %w", err)
+	}
+
+	// Keep retry counters around long enough for crash recovery.
+	if count == 1 {
+		if err := s.client.Expire(ctx, key, 7*24*time.Hour).Err(); err != nil {
+			s.logger.Warn("retry key expire failed", "id", id, "error", err)
+		}
+	}
+
+	return int(count), nil
+}
+
+// ResetRetry clears retry counters for processed message IDs.
+func (s *StreamBuffer) ResetRetry(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	pipe := s.client.Pipeline()
+	for _, id := range ids {
+		pipe.Del(ctx, s.retryKey(id))
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		return fmt.Errorf("reset retry counters: %w", err)
+	}
+
+	return nil
+}
+
 // Deadletter moves a failed message to the deadletter stream.
-func (s *StreamBuffer) Deadletter(ctx context.Context, msg domain.BufferedMessage, reason string) error {
+func (s *StreamBuffer) Deadletter(ctx context.Context, msg domain.BufferedMessage, reason string, retryCount int) error {
 	failedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	payloadBytes, _ := json.Marshal(msg.Payload)
+	payloadBytes, err := json.Marshal(msg.Payload)
+	if err != nil {
+		return fmt.Errorf("marshal deadletter payload: %w", err)
+	}
 
 	fields := map[string]interface{}{
 		"redis_stream_id":  msg.ID,
 		"failed_at":        failedAt,
+		"retry_count":      retryCount,
 		"error":            reason,
 		"original_payload": string(payloadBytes),
 	}
 
-	_, err := s.client.XAdd(ctx, &redis.XAddArgs{
+	_, err = s.client.XAdd(ctx, &redis.XAddArgs{
 		Stream: s.deadletterStream,
 		Values: fields,
 	}).Result()
@@ -215,6 +255,10 @@ func (s *StreamBuffer) Deadletter(ctx context.Context, msg domain.BufferedMessag
 
 	s.logger.Info("message deadlettered", "id", msg.ID, "reason", reason)
 	return nil
+}
+
+func (s *StreamBuffer) retryKey(id string) string {
+	return fmt.Sprintf("%s:retry:%s", s.stream, id)
 }
 
 // Length returns the number of messages in the stream.

@@ -55,18 +55,17 @@ func (s *WorkerService) ProcessBatch(ctx context.Context, maxCount int) error {
 	// Process each message and collect for batch insert
 	var rows []domain.EnrichedTelemetry
 	var idsToAck []string
-	var idsToDeadletter []string
 
 	for _, msg := range messages {
 		enriched, err := s.processMessage(ctx, msg)
 		if err != nil {
 			s.logger.Error("process message failed", "id", msg.ID, "error", err)
-			// For now, deadletter on error - in production would handle retries
-			if s.shouldDeadletter(ctx, msg.ID) {
-				idsToDeadletter = append(idsToDeadletter, msg.ID)
-				s.buffer.Deadletter(ctx, msg, err.Error())
-			}
 			s.metrics.IncWorkerFailed(err.Error())
+			if shouldAck, retryErr := s.handleFailure(ctx, msg, err.Error()); retryErr != nil {
+				s.logger.Error("retry handling failed", "id", msg.ID, "error", retryErr)
+			} else if shouldAck {
+				idsToAck = append(idsToAck, msg.ID)
+			}
 			continue
 		}
 
@@ -74,9 +73,9 @@ func (s *WorkerService) ProcessBatch(ctx context.Context, maxCount int) error {
 		idsToAck = append(idsToAck, msg.ID)
 	}
 
-	// Batch insert
+	// Batch insert and commit before acknowledging Redis messages.
 	if len(rows) > 0 {
-		inserted, err := s.repo.InsertBatchIdempotent(ctx, rows)
+		inserted, err := s.persistBatch(ctx, rows)
 		if err != nil {
 			s.logger.Error("batch insert failed", "error", err)
 			return err
@@ -87,11 +86,14 @@ func (s *WorkerService) ProcessBatch(ctx context.Context, maxCount int) error {
 		s.logger.Debug("batch processed", "total", len(rows), "inserted", inserted)
 	}
 
-	// Ack all successfully processed messages
+	// Ack only after the batch commit (or duplicate skip) succeeds.
 	if len(idsToAck) > 0 {
-		if err := s.buffer.Ack(ctx, idsToAck); err != nil {
+		if err := s.ackMessages(ctx, idsToAck); err != nil {
 			s.logger.Error("ack failed", "error", err)
 			return err
+		}
+		if err := s.buffer.ResetRetry(ctx, idsToAck); err != nil {
+			s.logger.Error("reset retry failed", "error", err)
 		}
 	}
 
@@ -125,8 +127,8 @@ func (s *WorkerService) processMessage(ctx context.Context, msg domain.BufferedM
 		return nil, err
 	}
 
-	// Build idempotency key
-	idempotencyKey := domain.IdempotencyKey(payload, normalizedTime)
+	// Build idempotency key (prefers message_id when present)
+	idempotencyKey := domain.BuildIdempotencyKey(payload, normalizedTime)
 
 	// Determine if we should store raw payload
 	var rawPayload *json.RawMessage
@@ -154,11 +156,33 @@ func (s *WorkerService) processMessage(ctx context.Context, msg domain.BufferedM
 	return enriched, nil
 }
 
-// shouldDeadletter checks if a message should be deadlettered.
-func (s *WorkerService) shouldDeadletter(ctx context.Context, streamID string) bool {
-	// In a full implementation, track retry counts
-	// For now, always true for errors
-	return true
+// persistBatch writes enriched telemetry to PostgreSQL.
+func (s *WorkerService) persistBatch(ctx context.Context, rows []domain.EnrichedTelemetry) (int, error) {
+	return s.repo.InsertBatchIdempotent(ctx, rows)
+}
+
+// ackMessages acknowledges messages after persistence has completed.
+func (s *WorkerService) ackMessages(ctx context.Context, ids []string) error {
+	return s.buffer.Ack(ctx, ids)
+}
+
+// handleFailure increments retry state and deadletters when limit is reached.
+func (s *WorkerService) handleFailure(ctx context.Context, msg domain.BufferedMessage, reason string) (bool, error) {
+	retryCount, err := s.buffer.IncrementRetry(ctx, msg.ID)
+	if err != nil {
+		return false, err
+	}
+
+	if retryCount < s.maxRetries {
+		return false, nil
+	}
+
+	if err := s.buffer.Deadletter(ctx, msg, reason, retryCount); err != nil {
+		return false, err
+	}
+
+	s.metrics.IncDeadlettered()
+	return true, nil
 }
 
 // RecoverStale claims and reprocesses stale pending messages.
@@ -182,12 +206,22 @@ func (s *WorkerService) RecoverStale(ctx context.Context, minIdle time.Duration,
 		enriched, err := s.processMessage(ctx, msg)
 		if err != nil {
 			s.logger.Error("recover stale message failed", "id", msg.ID, "error", err)
+			if shouldAck, retryErr := s.handleFailure(ctx, msg, err.Error()); retryErr != nil {
+				s.logger.Error("retry handling failed", "id", msg.ID, "error", retryErr)
+			} else if shouldAck {
+				idsToAck = append(idsToAck, msg.ID)
+			}
 			continue
 		}
 
 		_, err = s.repo.InsertBatchIdempotent(ctx, []domain.EnrichedTelemetry{*enriched})
 		if err != nil {
 			s.logger.Error("recover insert failed", "id", msg.ID, "error", err)
+			if shouldAck, retryErr := s.handleFailure(ctx, msg, err.Error()); retryErr != nil {
+				s.logger.Error("retry handling failed", "id", msg.ID, "error", retryErr)
+			} else if shouldAck {
+				idsToAck = append(idsToAck, msg.ID)
+			}
 			continue
 		}
 
@@ -198,6 +232,9 @@ func (s *WorkerService) RecoverStale(ctx context.Context, minIdle time.Duration,
 		if err := s.buffer.Ack(ctx, idsToAck); err != nil {
 			s.logger.Error("recover ack failed", "error", err)
 			return err
+		}
+		if err := s.buffer.ResetRetry(ctx, idsToAck); err != nil {
+			s.logger.Error("recover reset retry failed", "error", err)
 		}
 	}
 
