@@ -10,21 +10,14 @@ import (
 )
 
 func main() {
-	// Load configuration
-	configPath := os.Getenv("CONFIG_PATH")
-	if configPath == "" {
-		configPath = "config.yaml"
-	}
-
-	cfg, err := config.Load(configPath)
+	cfg, err := config.Load()
 	if err != nil {
 		os.Stderr.WriteString("config load error: " + err.Error() + "\n")
 		os.Exit(1)
 	}
 
-	// Initialize logger
 	logger := logging.New(cfg.Service.LogLevel)
-	logger.Info("starting telemetry service", "config", configPath)
+	logger.Info("starting telemetry service")
 
 	ctx := context.Background()
 

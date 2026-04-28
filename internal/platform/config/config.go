@@ -5,99 +5,81 @@ import (
 	"os"
 	"strconv"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
-
-// LoadFile reads YAML configuration into the config struct.
-func LoadFile(path string, cfg *Config) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	return yaml.Unmarshal(data, cfg)
-}
 
 // Config holds all configuration for the telemetry service.
 type Config struct {
-	Service  ServiceConfig  `yaml:"service"`
-	MQTT     MQTTConfig     `yaml:"mqtt"`
-	Redis    RedisConfig    `yaml:"redis"`
-	Postgres PostgresConfig `yaml:"postgres"`
-	Profiles ProfilesConfig `yaml:"profiles"`
-	Worker   WorkerConfig   `yaml:"worker"`
-	HTTP     HTTPConfig     `yaml:"http"`
+	Service  ServiceConfig
+	MQTT     MQTTConfig
+	Redis    RedisConfig
+	Postgres PostgresConfig
+	Profiles ProfilesConfig
+	Worker   WorkerConfig
+	HTTP     HTTPConfig
 }
 
 // ServiceConfig holds general service settings.
 type ServiceConfig struct {
-	Name       string `yaml:"name"`
-	InstanceID string `yaml:"instance_id"`
-	LogLevel   string `yaml:"log_level"`
+	Name       string
+	InstanceID string
+	LogLevel   string
 }
 
 // MQTTConfig holds MQTT connection settings.
 type MQTTConfig struct {
-	Broker        string        `yaml:"broker"`
-	ClientID      string        `yaml:"client_id"`
-	Topic         string        `yaml:"topic"`
-	QOS           int           `yaml:"qos"`
-	CleanSession  bool          `yaml:"clean_session"`
-	Username      string        `yaml:"username"`
-	Password      string        `yaml:"-"` // resolved from env
-	SessionExpiry time.Duration `yaml:"session_expiry"`
+	Broker        string
+	ClientID      string
+	Topic         string
+	QOS           int
+	CleanSession  bool
+	Username      string
+	Password      string // resolved from env
+	SessionExpiry time.Duration
 }
 
 // RedisConfig holds Redis connection settings.
 type RedisConfig struct {
-	Addr             string        `yaml:"addr"`
-	Password         string        `yaml:"-"` // resolved from env
-	DB               int           `yaml:"db"`
-	Stream           string        `yaml:"stream"`
-	DeadletterStream string        `yaml:"deadletter_stream"`
-	Group            string        `yaml:"group"`
-	Consumer         string        `yaml:"consumer"`
-	ReadCount        int           `yaml:"read_count"`
-	BlockTime        time.Duration `yaml:"block_time"`
-	MinIdleTime      time.Duration `yaml:"min_idle_time"`
+	Addr             string
+	Password         string // resolved from env
+	DB               int
+	Stream           string
+	DeadletterStream string
+	Group            string
+	Consumer         string
+	ReadCount        int
+	BlockTime        time.Duration
+	MinIdleTime      time.Duration
 }
 
 // PostgresConfig holds PostgreSQL connection settings.
 type PostgresConfig struct {
-	DSN           string        `yaml:"-"` // resolved from env
-	MaxWriteConns int           `yaml:"max_write_conns"`
-	MaxReadConns  int           `yaml:"max_read_conns"`
-	BatchSize     int           `yaml:"batch_size"`
-	BatchTimeout  time.Duration `yaml:"batch_timeout"`
+	DSN           string // resolved from env
+	MaxWriteConns int
+	MaxReadConns  int
+	BatchSize     int
+	BatchTimeout  time.Duration
 }
 
 // ProfilesConfig holds profile registry settings.
 type ProfilesConfig struct {
-	Path string `yaml:"path"`
+	Path string
 }
 
 // WorkerConfig holds worker behavior settings.
 type WorkerConfig struct {
-	MaxRetries          int           `yaml:"max_retries"`
-	RetryBackoffInitial time.Duration `yaml:"retry_backoff_initial"`
-	RetryBackoffMax     time.Duration `yaml:"retry_backoff_max"`
+	MaxRetries          int
+	RetryBackoffInitial time.Duration
+	RetryBackoffMax     time.Duration
 }
 
 // HTTPConfig holds HTTP server settings.
 type HTTPConfig struct {
-	ListenAddr string `yaml:"listen_addr"`
+	ListenAddr string
 }
 
-// Load reads configuration from environment and YAML file.
-func Load(path string) (*Config, error) {
+// Load reads configuration from environment variables.
+func Load() (*Config, error) {
 	cfg := Default()
-
-	// Load YAML file if provided
-	if path != "" {
-		if err := LoadFile(path, cfg); err != nil {
-			return nil, err
-		}
-	}
 
 	// Override with environment variables
 	if err := applyEnvOverrides(cfg); err != nil {
@@ -201,6 +183,9 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v := os.Getenv("INSTANCE_ID"); v != "" {
 		cfg.Service.InstanceID = v
+	}
+	if v := os.Getenv("PROFILES_PATH"); v != "" {
+		cfg.Profiles.Path = v
 	}
 	// Parse numeric overrides
 	if v := os.Getenv("WORKER_MAX_RETRIES"); v != "" {
