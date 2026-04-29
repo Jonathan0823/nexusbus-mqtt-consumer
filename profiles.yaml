@@ -7,59 +7,66 @@ profiles:
       register_type: "input"
       address: 0
       count: 9
-      device_id_prefix: "office-"
 
     mapping:
       - index: 0
-        key: "voltage_r"
+        key: "voltage"
         type: "uint16"
-        multiplier: 0.01
+        multiplier: 0.1
         unit: "V"
 
       - index: 1
-        key: "current_r"
+        key: "current"
         type: "uint16"
-        multiplier: 0.01
+        multiplier: 0.001
         unit: "A"
-
-      - index: 2
-        key: "power_r"
-        type: "uint16"
-        multiplier: 0.01
-        unit: "W"
 
       - index: 3
-        key: "voltage_s"
+        key: "power"
         type: "uint16"
-        multiplier: 0.01
-        unit: "V"
-
-      - index: 4
-        key: "current_s"
-        type: "uint16"
-        multiplier: 0.01
-        unit: "A"
-
-      - index: 5
-        key: "power_total"
-        type: "uint16"
-        multiplier: 0.01
+        multiplier: 0.1
         unit: "W"
 
-      - index: 6
+      - index: 5
+        key: "energy"
+        type: "uint16"
+        multiplier: 0.001
+        unit: "kWh"
+
+      - index: 7
         key: "frequency"
         type: "uint16"
         multiplier: 0.1
         unit: "Hz"
 
-      - index: 7
+      - index: 8
         key: "power_factor"
         type: "uint16"
-        multiplier: 0.001
-        unit: ""
+        multiplier: 0.01
+        unit: "PF"
 
-      - index: 8
-        key: "alarm_status"
+  environmental_3:
+    match:
+      register_type: "holding"
+      address: 0
+      count: 3
+      location: "assembling-lithium"
+
+    mapping:
+      - index: 0
+        key: "temperature"
+        type: "uint16"
+        multiplier: 0.1
+        unit: "°C"
+
+      - index: 1
+        key: "humidity"
+        type: "uint16"
+        multiplier: 0.1
+        unit: "%RH"
+
+      - index: 2
+        key: "dust"
         type: "uint16"
         multiplier: 1
-        unit: ""
+        unit: "µg/m³"
