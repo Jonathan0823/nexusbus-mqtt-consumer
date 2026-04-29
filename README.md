@@ -33,17 +33,21 @@ The service supports two modes, selected via `INGEST_MODE`:
 ### Normal Mode (default)
 
 Every MQTT message is immediately buffered to Redis Stream and processed by the worker in batches.
-- Full durability via Redis
+
+- Full durability via Redis Stream
 - Good for high-throughput scenarios with batch processing
 - Worker runs `ProcessBatch` every `POSTGRES_BATCH_TIMEOUT`
+- Each message yields its own DB row (one-to-one)
 
 ### Coalesce Mode
 
-Messages are held in memory and only the latest value per `device_id|profile_id` is kept.
-- Latest-wins semantics within each flush window
-- Reduces database writes when device sends frequent updates
-- Flush happens every `INGEST_FLUSH_INTERVAL` (default: 30s)
-- Pending entries are flushed on shutdown before resources close
+All MQTT messages go to Redis Stream (durable), but the worker reads them in batches and keeps only the **latest** telemetry value per `device_id|profile_id` in memory during each `INGEST_FLUSH_INTERVAL` window.
+
+- **Latest-wins**: If multiple messages arrive for the same device, only the newest (by payload timestamp) is kept
+- Deduplication happens **in the worker** before DB insert — reduces write volume
+- All original Redis stream message IDs are tracked; after a successful DB insert, **all IDs are acked**
+- Crash-safe: if the process crashes before flush, unacked messages stay in Redis Stream and are reclaimed via `XAUTOCLAIM`
+- Flush interval: default 30s (configurable)
 
 ```bash
 # Normal mode (default)
@@ -53,14 +57,9 @@ INGEST_MODE=normal go run ./cmd/telemetryd
 INGEST_MODE=coalesce INGEST_FLUSH_INTERVAL=30s go run ./cmd/telemetryd
 ```
 
-Key differences:
+**Why this works:** Redis Stream remains the source of truth in both modes. Coalesce mode changes only the consumer-side aggregation strategy, not the ingest pipeline. This means you get both deduplication and crash recovery.
 
-| Aspect | Normal | Coalesce |
-|--------|--------|----------|
-| Buffer | Redis Stream | In-memory |
-| Write frequency | Every message | Per flush interval |
-| Durability | Redis-persisted | Lost on restart |
-| Latency | Near-real-time | Up to flush interval |
+---
 
 ## Runtime Configuration
 
