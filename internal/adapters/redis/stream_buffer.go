@@ -164,31 +164,95 @@ func (s *StreamBuffer) Ack(ctx context.Context, ids []string) error {
 
 // ClaimStale claims messages that have been pending too long.
 func (s *StreamBuffer) ClaimStale(ctx context.Context, minIdle time.Duration, max int) ([]domain.BufferedMessage, error) {
-	// Use XAUTOCLAIM to claim stale messages
-	claims, _, err := s.client.XAutoClaim(ctx, &redis.XAutoClaimArgs{
-		Stream:   s.stream,
-		Group:    s.group,
-		Consumer: s.consumer,
-		MinIdle:  minIdle,
-		Start:    "0-0",
-		Count:    int64(max),
-	}).Result()
-
-	if err == redis.Nil {
-		return nil, nil
+	// XAUTOCLAIM returns [next_cursor, claimed_messages, deleted_ids]
+	// Redis 7+ added the third element for deleted message IDs.
+	// go-redis v8 may not handle this correctly, so we use raw Do() to parse the response.
+	//
+	// Build the raw command arguments.
+	args := []interface{}{
+		"XAUTOCLAIM",
+		s.stream,
+		s.group,
+		s.consumer,
+		int(minIdle / time.Millisecond), // minIdleTime in ms
+		"0-0",                           // start
+		"COUNT",                         // optional COUNT token
+		int64(max),
 	}
+
+	// Execute raw command - this returns the raw RESP array.
+	cmd := s.client.Do(ctx, args...)
+	reply, err := cmd.Slice()
 	if err != nil {
+		if err == redis.Nil {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("xautoclaim failed: %w", err)
 	}
 
+	// reply is []interface{} with 2 or 3 elements:
+	// - index 0: next cursor (string)
+	// - index 1: claimed messages (array)
+	// - index 2: deleted message IDs (array, Redis 7+ only)
+	if len(reply) < 2 {
+		return nil, nil
+	}
+
+	claimed, ok := reply[1].([]interface{})
+	if !ok {
+		return nil, nil
+	}
+
 	var messages []domain.BufferedMessage
-	for _, msg := range claims {
-		parsed, err := s.parseMessage(msg)
+	for _, rawMsg := range claimed {
+		// Each element is either []interface{} with [id, [fields...]]
+		msgArr, ok := rawMsg.([]interface{})
+		if !ok || len(msgArr) < 2 {
+			continue
+		}
+
+		id, ok := msgArr[0].(string)
+		if !ok {
+			continue
+		}
+
+		// Extract fields from the nested array.
+		values, ok := msgArr[1].([]interface{})
+		if !ok {
+			// No fields - still try to parse with empty map
+			parsed, err := s.parseMessage(redis.XMessage{ID: id, Values: nil})
+			if err != nil {
+				s.logger.Error("claim parse error", "id", id, "error", err)
+				continue
+			}
+			messages = append(messages, parsed)
+			continue
+		}
+
+		// Convert flattened array to map[string]interface{}.
+		fields := make(map[string]interface{})
+		for i := 0; i < len(values); i += 2 {
+			if i+1 >= len(values) {
+				break
+			}
+			if k, ok := values[i].(string); ok {
+				fields[k] = values[i+1]
+			}
+		}
+
+		parsed, err := s.parseMessage(redis.XMessage{ID: id, Values: fields})
 		if err != nil {
-			s.logger.Error("claim parse error", "id", msg.ID, "error", err)
+			s.logger.Error("claim parse error", "id", id, "error", err)
 			continue
 		}
 		messages = append(messages, parsed)
+	}
+
+	// Log deleted message IDs if present (Redis 7+)
+	if len(reply) >= 3 && reply[2] != nil {
+		if deleted, ok := reply[2].([]interface{}); ok && len(deleted) > 0 {
+			s.logger.Info("xautoclaim found deleted messages", "count", len(deleted))
+		}
 	}
 
 	s.logger.Debug("redis claim stale", "count", len(messages))
