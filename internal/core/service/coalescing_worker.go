@@ -13,7 +13,8 @@ import (
 )
 
 // CoalescingWorker handles telemetry with in-memory coalescing.
-// It keeps only the latest message per device_id|profile_id and flushes periodically.
+// It reads from Redis Stream, keeps latest per device_id|profile_id, and flushes periodically.
+// Uses Redis Stream for durability - messages are acked only after successful DB insert.
 type CoalescingWorker struct {
 	buffer     ports.MessageBuffer
 	repo       ports.TelemetryRepository
@@ -22,20 +23,18 @@ type CoalescingWorker struct {
 	logger     *logging.Logger
 	maxRetries int
 
-	// flushInterval controls how often to flush to database.
 	flushInterval time.Duration
 
-	// mu protects the buffer map.
-	mu sync.Mutex
-	// pending maps device_id|profile_id to buffered entry.
+	mu      sync.Mutex
 	pending map[string]*coalescedEntry
 }
 
-// coalescedEntry holds the latest message for a given key.
+// coalescedEntry holds the latest message and all stream IDs for a given key.
 type coalescedEntry struct {
 	key       string
 	msg       domain.BufferedMessage
 	timestamp time.Time
+	streamIDs []string // all stream IDs seen for this key
 }
 
 // NewCoalescingWorker creates a new coalescing worker service.
@@ -60,18 +59,62 @@ func NewCoalescingWorker(
 	}
 }
 
-// Handle processes an incoming message into the coalescing buffer.
-func (s *CoalescingWorker) Handle(ctx context.Context, msg domain.BufferedMessage) error {
+// StartFlushLoop reads from Redis Stream and periodically flushes.
+// Call this in a goroutine.
+func (s *CoalescingWorker) StartFlushLoop(ctx context.Context) {
+	ticker := time.NewTicker(s.flushInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.flush(ctx)
+			return
+		case <-ticker.C:
+			s.readAndFlush(ctx)
+		}
+	}
+}
+
+// readAndFlush reads a batch from Redis Stream and flushes latest per key.
+func (s *CoalescingWorker) readAndFlush(ctx context.Context) {
+	// Read batch from Redis Stream.
+	messages, err := s.buffer.ReadBatch(ctx, 1000)
+	if err != nil {
+		s.logger.Error("coalescing: read failed", "error", err)
+		return
+	}
+
+	if len(messages) == 0 {
+		return
+	}
+
+	s.logger.Debug("coalescing: batch read", "count", len(messages))
+
+	s.mu.Lock()
+	for _, msg := range messages {
+		if err := s.bufferOne(msg); err != nil {
+			s.logger.Error("coalescing: buffer one failed", "id", msg.ID, "error", err)
+		}
+	}
+	entryCount := len(s.pending)
+	s.mu.Unlock()
+
+	s.logger.Debug("coalescing: buffered", "entries", entryCount)
+
+	// Flush now.
+	s.flush(ctx)
+}
+
+// bufferOne adds a single message to the coalescing buffer.
+func (s *CoalescingWorker) bufferOne(msg domain.BufferedMessage) error {
 	payload := msg.Payload
 
-	// Normalize timestamp
 	normalizedTime, err := domain.NormalizeTimestamp(payload)
 	if err != nil {
-		s.logger.Error("normalize timestamp failed", "error", err, "device_id", payload.DeviceID)
 		return err
 	}
 
-	// Match profile to get profile_id for key
 	profile, err := s.profiles.Match(payload)
 	if err != nil {
 		return err
@@ -82,50 +125,40 @@ func (s *CoalescingWorker) Handle(ctx context.Context, msg domain.BufferedMessag
 		profileID = profile.ID
 	}
 
-	// Build the coalescing key: device_id|profile_id
 	key := fmt.Sprintf("%s|%s", payload.DeviceID, profileID)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Check if we should replace the existing entry.
 	existing, exists := s.pending[key]
 	if exists && !normalizedTime.After(existing.timestamp) {
-		// Existing timestamp is newer or equal - keep the old one.
-		s.logger.Debug("coalescing: keeping existing", "key", key, "existing_time", existing.timestamp, "new_time", normalizedTime)
+		// Keep existing - add stream ID to ack list.
+		existing.streamIDs = append(existing.streamIDs, msg.ID)
 		return nil
 	}
 
-	// Replace with newer message.
+	var oldIDs []string
+	if exists {
+		// Replacing with newer - keep old stream IDs too.
+		oldIDs = existing.streamIDs
+	}
+
+	// Replace with newer - include any old IDs in the ack list.
 	s.pending[key] = &coalescedEntry{
 		key:       key,
 		msg:       msg,
 		timestamp: normalizedTime,
+		streamIDs: append(oldIDs, msg.ID),
 	}
 
-	s.logger.Debug("coalescing: buffered", "key", key, "timestamp", normalizedTime)
 	return nil
 }
 
-// StartFlushLoop starts the periodic flush loop.
-// Call this in a goroutine.
-func (s *CoalescingWorker) StartFlushLoop(ctx context.Context) {
-	ticker := time.NewTicker(s.flushInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			// Flush any remaining on shutdown.
-			s.flush(ctx)
-			return
-		case <-ticker.C:
-			s.flush(ctx)
-		}
-	}
+// BufferOne adds a single message to the coalescing buffer.
+// Exported for testing.
+func (s *CoalescingWorker) BufferOne(msg domain.BufferedMessage) error {
+	return s.bufferOne(msg)
 }
 
 // flush writes all pending entries to the database.
+// Only clears Redis IDs after successful insert.
 func (s *CoalescingWorker) flush(ctx context.Context) {
 	s.mu.Lock()
 	if len(s.pending) == 0 {
@@ -145,7 +178,7 @@ func (s *CoalescingWorker) flush(ctx context.Context) {
 
 	// Process each entry.
 	var rows []domain.EnrichedTelemetry
-	var streamIDs []string
+	var allStreamIDs []string
 
 	for _, e := range entries {
 		enriched, err := s.processMessage(ctx, e.msg)
@@ -156,7 +189,7 @@ func (s *CoalescingWorker) flush(ctx context.Context) {
 		}
 
 		rows = append(rows, *enriched)
-		streamIDs = append(streamIDs, e.msg.ID)
+		allStreamIDs = append(allStreamIDs, e.streamIDs...)
 	}
 
 	// Batch insert.
@@ -171,19 +204,43 @@ func (s *CoalescingWorker) flush(ctx context.Context) {
 		s.logger.Info("coalescing: inserted", "total", len(rows), "inserted", inserted)
 	}
 
-	// Ack all stream IDs after successful insert.
-	if len(streamIDs) > 0 {
-		if err := s.buffer.Ack(ctx, streamIDs); err != nil {
+	// Only ack after successful insert.
+	if len(allStreamIDs) > 0 {
+		if err := s.buffer.Ack(ctx, allStreamIDs); err != nil {
 			s.logger.Error("coalescing: ack failed", "error", err)
 		}
-		if err := s.buffer.ResetRetry(ctx, streamIDs); err != nil {
+		if err := s.buffer.ResetRetry(ctx, allStreamIDs); err != nil {
 			s.logger.Error("coalescing: reset retry failed", "error", err)
 		}
 	}
 }
 
+// RecoverStale claims stale messages and re-buffers them.
+// For crash recovery - orphaned Redis entries are reclaimed and coalesced.
+func (s *CoalescingWorker) RecoverStale(ctx context.Context, minIdle time.Duration, maxCount int) error {
+	messages, err := s.buffer.ClaimStale(ctx, minIdle, maxCount)
+	if err != nil {
+		s.logger.Error("coalescing: claim stale failed", "error", err)
+		return err
+	}
+
+	if len(messages) == 0 {
+		return nil
+	}
+
+	s.logger.Info("coalescing: recovering stale", "count", len(messages))
+
+	// Buffer all reclaimed messages (latest per key will win).
+	for _, msg := range messages {
+		if err := s.bufferOne(msg); err != nil {
+			s.logger.Error("coalescing: buffer stale failed", "id", msg.ID, "error", err)
+		}
+	}
+
+	return nil
+}
+
 // processMessage transforms a buffered message into enriched telemetry.
-// This is copied from WorkerService for independence.
 func (s *CoalescingWorker) processMessage(ctx context.Context, msg domain.BufferedMessage) (*domain.EnrichedTelemetry, error) {
 	payload := msg.Payload
 

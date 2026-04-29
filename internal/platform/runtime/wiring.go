@@ -147,31 +147,13 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 	return w, nil
 }
 
-// StartMQTT starts the MQTT subscriber with message handling.
-// It selects between normal and coalesce modes based on config.
+// StartMQTT starts the MQTT subscriber.
+// MQTT always goes through IngestService -> Redis Stream (both modes).
+// The worker loop selects normal batch processing or coalescing aggregation.
 func (w *Wiring) StartMQTT(ctx context.Context) error {
-	// Wire up MQTT message handler - select based on mode
-	var handler func(payload domain.RawTelemetryPayload) error
-
-	if w.Cfg.Ingest.Mode == "coalesce" {
-		// Coalesce mode: route through CoalescingWorker.
-		w.Logger.Info("mqtt handler: coalesce mode")
-		handler = func(payload domain.RawTelemetryPayload) error {
-			w.Metrics.IncMQTTReceived()
-			// Convert RawTelemetryPayload to BufferedMessage.
-			msg := domain.BufferedMessage{
-				ID:      "", // No stream ID in coalesce mode.
-				Payload: payload,
-			}
-			return w.CoalescingWorker.Handle(ctx, msg)
-		}
-	} else {
-		// Normal mode: route through Redis Stream.
-		w.Logger.Info("mqtt handler: normal mode")
-		handler = func(payload domain.RawTelemetryPayload) error {
-			w.Metrics.IncMQTTReceived()
-			return w.IngestService.Handle(ctx, payload)
-		}
+	handler := func(payload domain.RawTelemetryPayload) error {
+		w.Metrics.IncMQTTReceived()
+		return w.IngestService.Handle(ctx, payload)
 	}
 
 	if err := w.MQTTSubscriber.Subscribe(ctx, handler); err != nil {
@@ -197,9 +179,31 @@ func (w *Wiring) StartHTTPServer() error {
 // It selects between normal and coalesce modes based on config.
 func (w *Wiring) StartWorkerLoop(ctx context.Context) {
 	if w.Cfg.Ingest.Mode == "coalesce" {
-		// Coalesce mode: route messages through CoalescingWorker instead.
+		// Coalesce mode: start flush loop + stale recovery loop.
 		w.Logger.Info("starting worker in coalesce mode", "flush_interval", w.Cfg.Ingest.FlushInterval)
 		go w.CoalescingWorker.StartFlushLoop(ctx)
+
+		// Also run stale message recovery periodically (for crash recovery).
+		go func() {
+			interval := w.Cfg.Redis.MinIdleTime
+			if interval <= 0 {
+				interval = 60 * time.Second
+			}
+
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if err := w.CoalescingWorker.RecoverStale(ctx, w.Cfg.Redis.MinIdleTime, 100); err != nil {
+						w.Logger.Error("coalesce recover stale failed", "error", err)
+					}
+				}
+			}
+		}()
 		return
 	}
 
