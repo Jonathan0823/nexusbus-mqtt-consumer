@@ -24,6 +24,43 @@ flowchart LR
 - Deadletter stream for permanent failures
 - `/healthz`, `/readyz`, `/metrics`
 - Env-only runtime config
+- **Selectable ingest mode**: normal (immediate) or coalesce (latest-wins)
+
+## Ingest Modes
+
+The service supports two modes, selected via `INGEST_MODE`:
+
+### Normal Mode (default)
+
+Every MQTT message is immediately buffered to Redis Stream and processed by the worker in batches.
+- Full durability via Redis
+- Good for high-throughput scenarios with batch processing
+- Worker runs `ProcessBatch` every `POSTGRES_BATCH_TIMEOUT`
+
+### Coalesce Mode
+
+Messages are held in memory and only the latest value per `device_id|profile_id` is kept.
+- Latest-wins semantics within each flush window
+- Reduces database writes when device sends frequent updates
+- Flush happens every `INGEST_FLUSH_INTERVAL` (default: 30s)
+- Pending entries are flushed on shutdown before resources close
+
+```bash
+# Normal mode (default)
+INGEST_MODE=normal go run ./cmd/telemetryd
+
+# Coalesce mode with 30s flush interval
+INGEST_MODE=coalesce INGEST_FLUSH_INTERVAL=30s go run ./cmd/telemetryd
+```
+
+Key differences:
+
+| Aspect | Normal | Coalesce |
+|--------|--------|----------|
+| Buffer | Redis Stream | In-memory |
+| Write frequency | Every message | Per flush interval |
+| Durability | Redis-persisted | Lost on restart |
+| Latency | Near-real-time | Up to flush interval |
 
 ## Runtime Configuration
 
@@ -59,6 +96,8 @@ Other common variables:
 - `WORKER_RETRY_BACKOFF_INITIAL`
 - `WORKER_RETRY_BACKOFF_MAX`
 - `PROFILES_PATH`
+- `INGEST_MODE`
+- `INGEST_FLUSH_INTERVAL`
 
 See `.env.example` for a full example.
 
