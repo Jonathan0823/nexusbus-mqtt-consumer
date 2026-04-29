@@ -1,4 +1,5 @@
 CREATE TABLE IF NOT EXISTS telemetry_enriched (
+    id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     time             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     received_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     device_id        VARCHAR(80) NOT NULL,
