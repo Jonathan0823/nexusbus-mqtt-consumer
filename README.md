@@ -49,12 +49,19 @@ All MQTT messages go to Redis Stream (durable), but the worker reads them in bat
 - Crash-safe: if the process crashes before flush, unacked messages stay in Redis Stream and are reclaimed via `XAUTOCLAIM`
 - Flush interval: default 30s (configurable)
 
+**Reliability guarantees:**
+- Shutdown flush uses a fresh timeout context to ensure the final buffered snapshot is persisted even after signal cancellation
+- Idle periods still flush pending work (including recovered stale entries) every tick
+- Thread-safe buffer mutations prevent data races between concurrent producers and flush cycles
+- Failed entries increment retry counters and are deadlettered after `WORKER_MAX_RETRIES`; deadletter completion acks and resets retry state to prevent infinite re-processing loops
+- Malformed environment variables (typed fields) now fail fast on startup instead of silently falling back to defaults
+
 ```bash
 # Normal mode (default)
-INGEST_MODE=normal go run ./cmd/telemetryd
+INGEST_MODE=normal go run ./cmd/app
 
 # Coalesce mode with 30s flush interval
-INGEST_MODE=coalesce INGEST_FLUSH_INTERVAL=30s go run ./cmd/telemetryd
+INGEST_MODE=coalesce INGEST_FLUSH_INTERVAL=30s go run ./cmd/app
 ```
 
 **Why this works:** Redis Stream remains the source of truth in both modes. Coalesce mode changes only the consumer-side aggregation strategy, not the ingest pipeline. This means you get both deduplication and crash recovery.
@@ -117,7 +124,7 @@ Run migrations before starting the service.
 ## Run
 
 ```bash
-go run ./cmd/telemetryd
+go run ./cmd/app
 ```
 
 ## Endpoints
@@ -129,7 +136,7 @@ go run ./cmd/telemetryd
 ## Project Structure
 
 ```text
-cmd/telemetryd              # Entry point
+cmd/app                     # Entry point
 internal/core               # Domain, ports, services
 internal/adapters           # MQTT, Redis, PostgreSQL, HTTP, YAML profile loader
 internal/platform           # config, logging, metrics, shutdown, runtime

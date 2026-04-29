@@ -85,29 +85,38 @@ func (s *CoalescingWorker) readAndFlush(ctx context.Context) {
 		return
 	}
 
-	if len(messages) == 0 {
-		return
-	}
+	// Always flush after every tick - even if no new messages arrived.
+	// This ensures recovered stale entries get flushed during idle periods.
+	if len(messages) > 0 {
+		s.logger.Debug("coalescing: batch read", "count", len(messages))
 
-	s.logger.Debug("coalescing: batch read", "count", len(messages))
-
-	s.mu.Lock()
-	for _, msg := range messages {
-		if err := s.bufferOne(msg); err != nil {
-			s.logger.Error("coalescing: buffer one failed", "id", msg.ID, "error", err)
+		s.mu.Lock()
+		for _, msg := range messages {
+			if err := s.bufferOneLocked(msg); err != nil {
+				s.logger.Error("coalescing: buffer one failed", "id", msg.ID, "error", err)
+			}
 		}
+		entryCount := len(s.pending)
+		s.mu.Unlock()
+
+		s.logger.Debug("coalescing: buffered", "entries", entryCount)
 	}
-	entryCount := len(s.pending)
-	s.mu.Unlock()
 
-	s.logger.Debug("coalescing: buffered", "entries", entryCount)
-
-	// Flush now.
+	// Flush now - runs every tick to drain any pending work (including recovered stale entries).
 	s.flush(ctx)
 }
 
 // bufferOne adds a single message to the coalescing buffer.
+// Thread-safe - acquires lock before mutating pending.
 func (s *CoalescingWorker) bufferOne(msg domain.BufferedMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.bufferOneLocked(msg)
+}
+
+// bufferOneLocked adds a single message to the coalescing buffer.
+// Assumes caller holds s.mu. Use for batch operations where lock is already held.
+func (s *CoalescingWorker) bufferOneLocked(msg domain.BufferedMessage) error {
 	payload := msg.Payload
 
 	normalizedTime, err := domain.NormalizeTimestamp(payload)
@@ -160,6 +169,14 @@ func (s *CoalescingWorker) BufferOne(msg domain.BufferedMessage) error {
 // flush writes all pending entries to the database.
 // Only clears Redis IDs after successful insert.
 func (s *CoalescingWorker) flush(ctx context.Context) {
+	// Shutdown callers may pass a canceled context; use a fresh timeout so
+	// the final coalesced snapshot can still be persisted and acked.
+	if ctx.Err() != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		ctx = shutdownCtx
+	}
+
 	s.mu.Lock()
 	if len(s.pending) == 0 {
 		s.mu.Unlock()
@@ -179,18 +196,23 @@ func (s *CoalescingWorker) flush(ctx context.Context) {
 	// Process each entry.
 	var rows []domain.EnrichedTelemetry
 	var allStreamIDs []string
+	var failedEntries []*coalescedEntry
 
 	for _, e := range entries {
 		enriched, err := s.processMessage(ctx, e.msg)
 		if err != nil {
 			s.logger.Error("coalescing: process failed", "key", e.key, "error", err)
 			s.metrics.IncWorkerFailed(err.Error())
+			failedEntries = append(failedEntries, e)
 			continue
 		}
 
 		rows = append(rows, *enriched)
 		allStreamIDs = append(allStreamIDs, e.streamIDs...)
 	}
+
+	// Handle failed entries - retry or deadletter.
+	s.handleFailedEntries(ctx, failedEntries)
 
 	// Batch insert.
 	if len(rows) > 0 {
@@ -211,6 +233,48 @@ func (s *CoalescingWorker) flush(ctx context.Context) {
 		}
 		if err := s.buffer.ResetRetry(ctx, allStreamIDs); err != nil {
 			s.logger.Error("coalescing: reset retry failed", "error", err)
+		}
+	}
+}
+
+// handleFailedEntries processes failed entries - increments retry count and deadletters if max retries reached.
+func (s *CoalescingWorker) handleFailedEntries(ctx context.Context, failedEntries []*coalescedEntry) {
+	if len(failedEntries) == 0 {
+		return
+	}
+
+	for _, e := range failedEntries {
+		// Increment retry counter for all stream IDs in this entry.
+		var maxRetryCount int
+		for _, id := range e.streamIDs {
+			retryCount, err := s.buffer.IncrementRetry(ctx, id)
+			if err != nil {
+				s.logger.Error("coalescing: increment retry failed", "id", id, "error", err)
+				continue
+			}
+			if retryCount > maxRetryCount {
+				maxRetryCount = retryCount
+			}
+		}
+
+		// If max retries reached, deadletter the entry.
+		if maxRetryCount >= s.maxRetries {
+			reason := fmt.Sprintf("max retries exceeded after %d attempts", maxRetryCount)
+			if err := s.buffer.Deadletter(ctx, e.msg, reason, maxRetryCount); err != nil {
+				s.logger.Error("coalescing: deadletter failed", "key", e.key, "error", err)
+				continue
+			}
+
+			s.metrics.IncDeadlettered()
+			s.logger.Warn("coalescing: deadlettered entry", "key", e.key, "retries", maxRetryCount)
+
+			if err := s.buffer.Ack(ctx, e.streamIDs); err != nil {
+				s.logger.Error("coalescing: deadletter ack failed", "key", e.key, "error", err)
+				continue
+			}
+			if err := s.buffer.ResetRetry(ctx, e.streamIDs); err != nil {
+				s.logger.Error("coalescing: deadletter reset retry failed", "key", e.key, "error", err)
+			}
 		}
 	}
 }

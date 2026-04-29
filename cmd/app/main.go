@@ -42,7 +42,10 @@ func main() {
 	if cfg.Ingest.Mode == "coalesce" {
 		app.AddComponentFunc("coalescer-flush", func() error {
 			logger.Info("flushing coalesced buffer before shutdown")
-			return wiring.CoalescingWorker.Flush(ctx)
+			// Use a fresh context for shutdown flush - the signal ctx is already canceled
+			flushCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			return wiring.CoalescingWorker.Flush(flushCtx)
 		})
 	}
 

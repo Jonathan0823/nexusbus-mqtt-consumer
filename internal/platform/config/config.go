@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -174,6 +175,33 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
+func setIntEnv(key, raw string, dst *int) error {
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return fmt.Errorf("invalid %s %q: %w", key, raw, err)
+	}
+	*dst = n
+	return nil
+}
+
+func setDurationEnv(key, raw string, dst *time.Duration) error {
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return fmt.Errorf("invalid %s %q: %w", key, raw, err)
+	}
+	*dst = d
+	return nil
+}
+
+func setBoolEnv(key, raw string, dst *bool) error {
+	b, err := strconv.ParseBool(raw)
+	if err != nil {
+		return fmt.Errorf("invalid %s %q: %w", key, raw, err)
+	}
+	*dst = b
+	return nil
+}
+
 // applyEnvOverrides applies environment variable overrides.
 func applyEnvOverrides(cfg *Config) error {
 	if v := os.Getenv("SERVICE_NAME"); v != "" {
@@ -201,13 +229,13 @@ func applyEnvOverrides(cfg *Config) error {
 		cfg.MQTT.Topic = v
 	}
 	if v := os.Getenv("MQTT_QOS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.MQTT.QOS = n
+		if err := setIntEnv("MQTT_QOS", v, &cfg.MQTT.QOS); err != nil {
+			return err
 		}
 	}
 	if v := os.Getenv("MQTT_CLEAN_SESSION"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			cfg.MQTT.CleanSession = b
+		if err := setBoolEnv("MQTT_CLEAN_SESSION", v, &cfg.MQTT.CleanSession); err != nil {
+			return err
 		}
 	}
 	if v := os.Getenv("MQTT_USERNAME"); v != "" {
@@ -217,8 +245,8 @@ func applyEnvOverrides(cfg *Config) error {
 		cfg.MQTT.Password = v
 	}
 	if v := os.Getenv("MQTT_SESSION_EXPIRY"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.MQTT.SessionExpiry = d
+		if err := setDurationEnv("MQTT_SESSION_EXPIRY", v, &cfg.MQTT.SessionExpiry); err != nil {
+			return err
 		}
 	}
 
@@ -231,8 +259,8 @@ func applyEnvOverrides(cfg *Config) error {
 		cfg.Redis.Password = v
 	}
 	if v := os.Getenv("REDIS_DB"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Redis.DB = n
+		if err := setIntEnv("REDIS_DB", v, &cfg.Redis.DB); err != nil {
+			return err
 		}
 	}
 	if v := os.Getenv("REDIS_STREAM"); v != "" {
@@ -248,18 +276,18 @@ func applyEnvOverrides(cfg *Config) error {
 		cfg.Redis.Consumer = v
 	}
 	if v := os.Getenv("REDIS_READ_COUNT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Redis.ReadCount = n
+		if err := setIntEnv("REDIS_READ_COUNT", v, &cfg.Redis.ReadCount); err != nil {
+			return err
 		}
 	}
 	if v := os.Getenv("REDIS_BLOCK_TIME"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.Redis.BlockTime = d
+		if err := setDurationEnv("REDIS_BLOCK_TIME", v, &cfg.Redis.BlockTime); err != nil {
+			return err
 		}
 	}
 	if v := os.Getenv("REDIS_MIN_IDLE_TIME"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.Redis.MinIdleTime = d
+		if err := setDurationEnv("REDIS_MIN_IDLE_TIME", v, &cfg.Redis.MinIdleTime); err != nil {
+			return err
 		}
 	}
 
@@ -267,39 +295,39 @@ func applyEnvOverrides(cfg *Config) error {
 		cfg.Postgres.DSN = v
 	}
 	if v := os.Getenv("POSTGRES_MAX_WRITE_CONNS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Postgres.MaxWriteConns = n
+		if err := setIntEnv("POSTGRES_MAX_WRITE_CONNS", v, &cfg.Postgres.MaxWriteConns); err != nil {
+			return err
 		}
 	}
 	if v := os.Getenv("POSTGRES_MAX_READ_CONNS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Postgres.MaxReadConns = n
+		if err := setIntEnv("POSTGRES_MAX_READ_CONNS", v, &cfg.Postgres.MaxReadConns); err != nil {
+			return err
 		}
 	}
 	if v := os.Getenv("POSTGRES_BATCH_SIZE"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Postgres.BatchSize = n
+		if err := setIntEnv("POSTGRES_BATCH_SIZE", v, &cfg.Postgres.BatchSize); err != nil {
+			return err
 		}
 	}
 	if v := os.Getenv("POSTGRES_BATCH_TIMEOUT"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.Postgres.BatchTimeout = d
+		if err := setDurationEnv("POSTGRES_BATCH_TIMEOUT", v, &cfg.Postgres.BatchTimeout); err != nil {
+			return err
 		}
 	}
 
 	if v := os.Getenv("WORKER_MAX_RETRIES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Worker.MaxRetries = n
+		if err := setIntEnv("WORKER_MAX_RETRIES", v, &cfg.Worker.MaxRetries); err != nil {
+			return err
 		}
 	}
 	if v := os.Getenv("WORKER_RETRY_BACKOFF_INITIAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.Worker.RetryBackoffInitial = d
+		if err := setDurationEnv("WORKER_RETRY_BACKOFF_INITIAL", v, &cfg.Worker.RetryBackoffInitial); err != nil {
+			return err
 		}
 	}
 	if v := os.Getenv("WORKER_RETRY_BACKOFF_MAX"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.Worker.RetryBackoffMax = d
+		if err := setDurationEnv("WORKER_RETRY_BACKOFF_MAX", v, &cfg.Worker.RetryBackoffMax); err != nil {
+			return err
 		}
 	}
 
@@ -310,13 +338,13 @@ func applyEnvOverrides(cfg *Config) error {
 		cfg.Ingest.Mode = v
 	}
 	if v := os.Getenv("INGEST_FLUSH_INTERVAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.Ingest.FlushInterval = d
+		if err := setDurationEnv("INGEST_FLUSH_INTERVAL", v, &cfg.Ingest.FlushInterval); err != nil {
+			return err
 		}
 	}
 	if v := os.Getenv("BATCH_SIZE"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Postgres.BatchSize = n
+		if err := setIntEnv("BATCH_SIZE", v, &cfg.Postgres.BatchSize); err != nil {
+			return err
 		}
 	}
 	return nil
