@@ -24,6 +24,42 @@ flowchart LR
 - Deadletter stream for permanent failures
 - `/healthz`, `/readyz`, `/metrics`
 - Env-only runtime config
+- **Selectable ingest mode**: normal (immediate) or coalesce (latest-wins)
+
+## Ingest Modes
+
+The service supports two modes, selected via `INGEST_MODE`:
+
+### Normal Mode (default)
+
+Every MQTT message is immediately buffered to Redis Stream and processed by the worker in batches.
+
+- Full durability via Redis Stream
+- Good for high-throughput scenarios with batch processing
+- Worker runs `ProcessBatch` every `POSTGRES_BATCH_TIMEOUT`
+- Each message yields its own DB row (one-to-one)
+
+### Coalesce Mode
+
+All MQTT messages go to Redis Stream (durable), but the worker reads them in batches and keeps only the **latest** telemetry value per `device_id|profile_id` in memory during each `INGEST_FLUSH_INTERVAL` window.
+
+- **Latest-wins**: If multiple messages arrive for the same device, only the newest (by payload timestamp) is kept
+- Deduplication happens **in the worker** before DB insert — reduces write volume
+- All original Redis stream message IDs are tracked; after a successful DB insert, **all IDs are acked**
+- Crash-safe: if the process crashes before flush, unacked messages stay in Redis Stream and are reclaimed via `XAUTOCLAIM`
+- Flush interval: default 30s (configurable)
+
+```bash
+# Normal mode (default)
+INGEST_MODE=normal go run ./cmd/telemetryd
+
+# Coalesce mode with 30s flush interval
+INGEST_MODE=coalesce INGEST_FLUSH_INTERVAL=30s go run ./cmd/telemetryd
+```
+
+**Why this works:** Redis Stream remains the source of truth in both modes. Coalesce mode changes only the consumer-side aggregation strategy, not the ingest pipeline. This means you get both deduplication and crash recovery.
+
+---
 
 ## Runtime Configuration
 
@@ -59,6 +95,8 @@ Other common variables:
 - `WORKER_RETRY_BACKOFF_INITIAL`
 - `WORKER_RETRY_BACKOFF_MAX`
 - `PROFILES_PATH`
+- `INGEST_MODE`
+- `INGEST_FLUSH_INTERVAL`
 
 See `.env.example` for a full example.
 

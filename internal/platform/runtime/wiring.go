@@ -25,8 +25,9 @@ type Wiring struct {
 	Logger *logging.Logger
 
 	// Core services
-	IngestService *service.IngestService
-	WorkerService *service.WorkerService
+	IngestService    *service.IngestService
+	WorkerService    *service.WorkerService
+	CoalescingWorker *service.CoalescingWorker
 
 	// Adapters
 	MQTTSubscriber *mqtt.Subscriber
@@ -111,6 +112,17 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 		cfg.Worker.MaxRetries,
 	)
 
+	// Coalescing Worker (for coalesce mode)
+	w.CoalescingWorker = service.NewCoalescingWorker(
+		w.RedisBuffer,
+		w.PostgresRepo,
+		w.ProfileReg,
+		w.Metrics,
+		logger,
+		cfg.Worker.MaxRetries,
+		cfg.Ingest.FlushInterval,
+	)
+
 	// HTTP Handler
 	w.HTTPHandler = httphandler.NewHandler(
 		logger,
@@ -135,13 +147,16 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 	return w, nil
 }
 
-// StartMQTT starts the MQTT subscriber with message handling.
+// StartMQTT starts the MQTT subscriber.
+// MQTT always goes through IngestService -> Redis Stream (both modes).
+// The worker loop selects normal batch processing or coalescing aggregation.
 func (w *Wiring) StartMQTT(ctx context.Context) error {
-	// Wire up MQTT message handler
-	if err := w.MQTTSubscriber.Subscribe(ctx, func(payload domain.RawTelemetryPayload) error {
+	handler := func(payload domain.RawTelemetryPayload) error {
 		w.Metrics.IncMQTTReceived()
 		return w.IngestService.Handle(ctx, payload)
-	}); err != nil {
+	}
+
+	if err := w.MQTTSubscriber.Subscribe(ctx, handler); err != nil {
 		return fmt.Errorf("mqtt subscribe: %w", err)
 	}
 
@@ -161,7 +176,38 @@ func (w *Wiring) StartHTTPServer() error {
 }
 
 // StartWorkerLoop starts the background worker processing loop.
+// It selects between normal and coalesce modes based on config.
 func (w *Wiring) StartWorkerLoop(ctx context.Context) {
+	if w.Cfg.Ingest.Mode == "coalesce" {
+		// Coalesce mode: start flush loop + stale recovery loop.
+		w.Logger.Info("starting worker in coalesce mode", "flush_interval", w.Cfg.Ingest.FlushInterval)
+		go w.CoalescingWorker.StartFlushLoop(ctx)
+
+		// Also run stale message recovery periodically (for crash recovery).
+		go func() {
+			interval := w.Cfg.Redis.MinIdleTime
+			if interval <= 0 {
+				interval = 60 * time.Second
+			}
+
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if err := w.CoalescingWorker.RecoverStale(ctx, w.Cfg.Redis.MinIdleTime, 100); err != nil {
+						w.Logger.Error("coalesce recover stale failed", "error", err)
+					}
+				}
+			}
+		}()
+		return
+	}
+
+	// Normal mode: use current batch processing.
 	go func() {
 		interval := w.Cfg.Postgres.BatchTimeout
 		if interval <= 0 {
@@ -187,6 +233,15 @@ func (w *Wiring) StartWorkerLoop(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// StartCoalescingLoop routes messages to coalescing buffer instead of Redis Stream.
+// Call this instead of directly handling in MQTT for coalesce mode.
+func (w *Wiring) StartCoalescingLoop(ctx context.Context) {
+	// In coalesce mode, the MQTT handler should call CoalescingWorker.Handle
+	// instead of IngestService.Handle.
+	// This method is a placeholder for documentation.
+	// The routing happens in main.go based on config.
 }
 
 // Close closes all resources in reverse order.

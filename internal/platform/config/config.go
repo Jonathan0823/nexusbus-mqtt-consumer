@@ -18,6 +18,7 @@ type Config struct {
 	Profiles ProfilesConfig
 	Worker   WorkerConfig
 	HTTP     HTTPConfig
+	Ingest   IngestConfig
 }
 
 // ServiceConfig holds general service settings.
@@ -77,6 +78,12 @@ type WorkerConfig struct {
 // HTTPConfig holds HTTP server settings.
 type HTTPConfig struct {
 	ListenAddr string
+}
+
+// IngestConfig holds ingest behavior settings.
+type IngestConfig struct {
+	Mode          string        // "normal" or "coalesce"
+	FlushInterval time.Duration // flush interval for coalesce mode
 }
 
 // Load reads configuration from environment variables.
@@ -140,6 +147,10 @@ func Default() *Config {
 		HTTP: HTTPConfig{
 			ListenAddr: ":8080",
 		},
+		Ingest: IngestConfig{
+			Mode:          "normal",
+			FlushInterval: 30 * time.Second,
+		},
 	}
 }
 
@@ -153,6 +164,12 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.Postgres.DSN == "" {
 		return errors.New("postgres DSN is required")
+	}
+	if cfg.Ingest.Mode != "normal" && cfg.Ingest.Mode != "coalesce" {
+		return errors.New("ingest.mode must be 'normal' or 'coalesce'")
+	}
+	if cfg.Ingest.FlushInterval <= 0 {
+		return errors.New("ingest.flush_interval must be positive")
 	}
 	return nil
 }
@@ -288,6 +305,14 @@ func applyEnvOverrides(cfg *Config) error {
 
 	if v := os.Getenv("PROFILES_PATH"); v != "" {
 		cfg.Profiles.Path = v
+	}
+	if v := os.Getenv("INGEST_MODE"); v != "" {
+		cfg.Ingest.Mode = v
+	}
+	if v := os.Getenv("INGEST_FLUSH_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Ingest.FlushInterval = d
+		}
 	}
 	if v := os.Getenv("BATCH_SIZE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
