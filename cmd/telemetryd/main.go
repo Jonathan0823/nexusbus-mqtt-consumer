@@ -38,6 +38,14 @@ func main() {
 	// Add wiring closer to app
 	app.AddComponentFunc("wiring", wiring.Close)
 
+	// Add coalescer flush before wiring close (runs first in coalesce mode)
+	if cfg.Ingest.Mode == "coalesce" {
+		app.AddComponentFunc("coalescer-flush", func() error {
+			logger.Info("flushing coalesced buffer before shutdown")
+			return wiring.CoalescingWorker.Flush(ctx)
+		})
+	}
+
 	// Add MQTT subscriber
 	app.AddComponentFunc("mqtt", func() error {
 		return wiring.MQTTSubscriber.Close()
