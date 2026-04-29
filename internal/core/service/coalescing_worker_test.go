@@ -19,6 +19,7 @@ type fakeBufferCoalesceStream struct {
 	claimed       []domain.BufferedMessage
 	deadlettered  []domain.BufferedMessage
 	retryCount    int
+	ackErr        error
 }
 
 func (f *fakeBufferCoalesceStream) Add(context.Context, domain.RawTelemetryMessage) error { return nil }
@@ -26,6 +27,9 @@ func (f *fakeBufferCoalesceStream) ReadBatch(context.Context, int) ([]domain.Buf
 	return append([]domain.BufferedMessage(nil), f.readBatch...), nil
 }
 func (f *fakeBufferCoalesceStream) Ack(_ context.Context, ids []string) error {
+	if f.ackErr != nil {
+		return f.ackErr
+	}
 	f.ackedIDs = append(f.ackedIDs, ids...)
 	return nil
 }
@@ -301,6 +305,35 @@ func TestCoalescingWorker_DeadlettersAndAcksFailedEntries(t *testing.T) {
 	}
 	if len(buf.resetRetryIDs) != 1 {
 		t.Fatalf("expected deadlettered stream ID retry counter to be reset, got %d: %v", len(buf.resetRetryIDs), buf.resetRetryIDs)
+	}
+}
+
+func TestCoalescingWorker_DeadletterAckFailureDoesNotResetRetry(t *testing.T) {
+	t.Parallel()
+
+	buf := &fakeBufferCoalesceStream{retryCount: 3, ackErr: errors.New("ack failed")}
+	repo := &fakeRepoCoalesceStream{inserted: 1}
+	w := NewCoalescingWorker(buf, repo, fakeProfilesCoalesceStream{}, fakeMetricsCoalesceStream{}, logging.New("error"), 3, time.Second)
+
+	msg := domain.BufferedMessage{
+		ID:      "1",
+		Payload: domain.RawTelemetryPayload{DeviceID: "device-1", Timestamp: "100"},
+	}
+	if err := w.BufferOne(msg); err != nil {
+		t.Fatalf("BufferOne failed: %v", err)
+	}
+
+	w.profiles = failingTransformProfilesCoalesceStream{}
+	w.Flush(context.Background())
+
+	if len(buf.deadlettered) != 1 {
+		t.Fatalf("expected 1 deadlettered message, got %d", len(buf.deadlettered))
+	}
+	if len(buf.ackedIDs) != 0 {
+		t.Fatalf("expected no ack on ack failure, got %d", len(buf.ackedIDs))
+	}
+	if len(buf.resetRetryIDs) != 0 {
+		t.Fatalf("expected no retry reset on ack failure, got %d", len(buf.resetRetryIDs))
 	}
 }
 

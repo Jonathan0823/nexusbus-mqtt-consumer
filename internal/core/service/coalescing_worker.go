@@ -270,6 +270,7 @@ func (s *CoalescingWorker) handleFailedEntries(ctx context.Context, failedEntrie
 
 			if err := s.buffer.Ack(ctx, e.streamIDs); err != nil {
 				s.logger.Error("coalescing: deadletter ack failed", "key", e.key, "error", err)
+				continue
 			}
 			if err := s.buffer.ResetRetry(ctx, e.streamIDs); err != nil {
 				s.logger.Error("coalescing: deadletter reset retry failed", "key", e.key, "error", err)
