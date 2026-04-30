@@ -108,7 +108,7 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 	w.IngestService = service.NewIngestService(w.RedisBuffer, logger)
 
 	// MQTT Client
-	mqttClient, err := mqtt.NewClient(mqtt.MQTTConfig{
+	mqttCfg := mqtt.MQTTConfig{
 		Broker:       cfg.MQTT.Broker,
 		ClientID:     cfg.MQTT.ClientID,
 		Topic:        cfg.MQTT.Topic,
@@ -117,22 +117,14 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 		Username:     cfg.MQTT.Username,
 		Password:     cfg.MQTT.Password,
 		Timeout:      30 * time.Second,
-	}, logger)
+	}
+	mqttClient, err := mqtt.NewClient(mqttCfg, logger)
 	if err != nil {
 		return nil, fmt.Errorf("mqtt client: %w", err)
 	}
 
 	// MQTT Subscriber
-	w.MQTTSubscriber = mqtt.NewSubscriber(mqtt.MQTTConfig{
-		Broker:       cfg.MQTT.Broker,
-		ClientID:     cfg.MQTT.ClientID,
-		Topic:        cfg.MQTT.Topic,
-		QOS:          byte(cfg.MQTT.QOS),
-		CleanSession: cfg.MQTT.CleanSession,
-		Username:     cfg.MQTT.Username,
-		Password:     cfg.MQTT.Password,
-		Timeout:      30 * time.Second,
-	}, mqttClient, logger)
+	w.MQTTSubscriber = mqtt.NewSubscriber(mqttCfg, mqttClient, logger)
 
 	// Worker Service
 	w.WorkerService = service.NewWorkerService(
