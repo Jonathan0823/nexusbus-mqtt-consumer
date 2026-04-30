@@ -95,3 +95,110 @@ func TestNewRegistryParsesMapProfiles(t *testing.T) {
 		t.Fatalf("expected power_meter_3, got %#v", profile)
 	}
 }
+
+func TestMatchExplicitZeroAddress(t *testing.T) {
+	t.Parallel()
+
+	zero := 0
+	one := 1
+	r := &Registry{
+		profiles: map[string]domain.DeviceProfile{
+			"zero-address": {
+				ID: "zero-address",
+				Match: domain.ProfileMatch{
+					RegisterType: "input",
+					Address:      &zero,
+					Count:        &one,
+				},
+			},
+		},
+		logger: logging.New("error"),
+	}
+
+	profile, err := r.Match(domain.RawTelemetryPayload{RegisterType: "input", Address: 0, Count: 1})
+	if err != nil {
+		t.Fatalf("match failed: %v", err)
+	}
+	if profile == nil || profile.ID != "zero-address" {
+		t.Fatalf("expected zero-address profile, got %#v", profile)
+	}
+}
+
+func TestMatchNonZeroAddressStillMatches(t *testing.T) {
+	t.Parallel()
+
+	four := 4
+	six := 6
+	r := &Registry{
+		profiles: map[string]domain.DeviceProfile{
+			"nonzero-address": {
+				ID: "nonzero-address",
+				Match: domain.ProfileMatch{
+					RegisterType: "holding",
+					Address:      &four,
+					Count:        &six,
+				},
+			},
+		},
+		logger: logging.New("error"),
+	}
+
+	profile, err := r.Match(domain.RawTelemetryPayload{RegisterType: "holding", Address: 4, Count: 6})
+	if err != nil {
+		t.Fatalf("match failed: %v", err)
+	}
+	if profile == nil || profile.ID != "nonzero-address" {
+		t.Fatalf("expected nonzero-address profile, got %#v", profile)
+	}
+}
+
+func TestNewRegistryRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "profiles.yaml")
+	yaml := []byte(`profiles:
+  broken:
+    match:
+      device_id_prefix: "x-"
+      unknown_field: true
+    mapping: []
+`)
+	if err := os.WriteFile(path, yaml, 0o600); err != nil {
+		t.Fatalf("write profiles: %v", err)
+	}
+
+	if _, err := NewRegistry(path, logging.New("error")); err == nil {
+		t.Fatal("expected strict YAML parse error for unknown field")
+	}
+}
+
+func TestTransformSupportsMetricMappingType(t *testing.T) {
+	t.Parallel()
+
+	r := &Registry{logger: logging.New("error")}
+	profile := &domain.DeviceProfile{
+		ID:      "typed",
+		Mapping: []domain.MetricMapping{{Index: 0, Key: "signed", Type: "int16", Multiplier: 1}},
+	}
+	result, err := r.Transform(domain.RawTelemetryPayload{Values: []int{-1}}, profile)
+	if err != nil {
+		t.Fatalf("transform failed: %v", err)
+	}
+	if result["signed"] != float64(-1) {
+		t.Fatalf("expected signed metric -1, got %#v", result["signed"])
+	}
+}
+
+func TestTransformRejectsUnsupportedMetricMappingType(t *testing.T) {
+	t.Parallel()
+
+	r := &Registry{logger: logging.New("error")}
+	profile := &domain.DeviceProfile{
+		ID:      "typed",
+		Mapping: []domain.MetricMapping{{Index: 0, Key: "bad", Type: "bogus", Multiplier: 1}},
+	}
+	if _, err := r.Transform(domain.RawTelemetryPayload{Values: []int{1}}, profile); err == nil {
+		t.Fatal("expected unsupported type error")
+	}
+}
