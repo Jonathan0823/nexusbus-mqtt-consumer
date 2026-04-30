@@ -2,12 +2,41 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"modbus-mqtt-consumer/internal/platform/logging"
 )
 
-// NewConnection creates a PostgreSQL repository connection.
-// This factory follows the design.md adapter creation pattern.
+// NewPool creates a PostgreSQL connection pool.
+func NewPool(ctx context.Context, cfg Config, logger *logging.Logger) (*pgxpool.Pool, error) {
+	poolConfig, err := pgxpool.ParseConfig(cfg.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("parse dsn: %w", err)
+	}
+
+	poolConfig.MaxConns = int32(cfg.MaxWriteConns)
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create pool: %w", err)
+	}
+
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("ping failed: %w", err)
+	}
+
+	logger.Info("postgres connected", "max_conns", cfg.MaxWriteConns)
+	return pool, nil
+}
+
+// NewConnection is a compatibility shim that creates pool and repository.
+// Deprecated: use NewPool + NewRepository instead.
 func NewConnection(ctx context.Context, cfg Config, logger *logging.Logger) (*Repository, error) {
-	return NewRepository(ctx, cfg, logger)
+	pool, err := NewPool(ctx, cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	return NewRepository(pool, logger), nil
 }

@@ -24,31 +24,12 @@ type Config struct {
 	MaxReadConns  int
 }
 
-// NewRepository creates a new PostgreSQL repository.
-func NewRepository(ctx context.Context, cfg Config, logger *logging.Logger) (*Repository, error) {
-	poolConfig, err := pgxpool.ParseConfig(cfg.DSN)
-	if err != nil {
-		return nil, fmt.Errorf("parse dsn: %w", err)
-	}
-
-	poolConfig.MaxConns = int32(cfg.MaxWriteConns)
-
-	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
-	if err != nil {
-		return nil, fmt.Errorf("create pool: %w", err)
-	}
-
-	// Test connection
-	if err := pool.Ping(ctx); err != nil {
-		return nil, fmt.Errorf("ping failed: %w", err)
-	}
-
-	logger.Info("postgres connected", "max_conns", cfg.MaxWriteConns)
-
+// NewRepository creates a new PostgreSQL repository from an existing pool.
+func NewRepository(pool *pgxpool.Pool, logger *logging.Logger) *Repository {
 	return &Repository{
 		pool:   pool,
 		logger: logger,
-	}, nil
+	}
 }
 
 // InsertBatchIdempotent inserts a batch of telemetry rows idempotently.
