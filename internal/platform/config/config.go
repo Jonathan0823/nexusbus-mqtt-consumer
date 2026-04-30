@@ -40,6 +40,7 @@ type MQTTConfig struct {
 	Password     string // resolved from env
 	// Reserved for future MQTT v5 session control; documented but not yet wired.
 	SessionExpiry time.Duration
+	Timeout       time.Duration
 }
 
 // RedisConfig holds Redis connection settings.
@@ -124,6 +125,7 @@ func Default() *Config {
 			QOS:           1,
 			CleanSession:  false,
 			SessionExpiry: 7 * 24 * time.Hour, // 7 days
+			Timeout:       30 * time.Second,
 		},
 		Redis: RedisConfig{
 			Addr:             "localhost:6379",
@@ -250,6 +252,11 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v := os.Getenv("MQTT_SESSION_EXPIRY"); v != "" {
 		if err := setDurationEnv("MQTT_SESSION_EXPIRY", v, &cfg.MQTT.SessionExpiry); err != nil {
+			return err
+		}
+	}
+	if v := os.Getenv("MQTT_TIMEOUT"); v != "" {
+		if err := setDurationEnv("MQTT_TIMEOUT", v, &cfg.MQTT.Timeout); err != nil {
 			return err
 		}
 	}

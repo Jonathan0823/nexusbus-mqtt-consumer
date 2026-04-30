@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"modbus-mqtt-consumer/internal/platform/config"
 )
 
 // TestBlockTimeDefaultFallback verifies that when blockTime is 0,
@@ -87,17 +88,17 @@ func TestStreamBufferBlockTimeStored(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Create a minimal StreamBuffer to verify field storage
-			// We can't actually connect to Redis in tests, but we can verify
-			// the struct field assignment logic by checking the config flow.
-			cfg := Config{
-				Addr:             "localhost:6379",
-				Stream:           "test-stream",
-				DeadletterStream: "test-dlq",
-				Group:            "test-group",
-				Consumer:         "test-consumer",
-				BlockTime:        tt.blockTime,
-			}
+		// Create a minimal StreamBuffer to verify field storage
+		// We can't actually connect to Redis in tests, but we can verify
+		// the struct field assignment logic by checking the config flow.
+		cfg := config.RedisConfig{
+			Addr:             "localhost:6379",
+			Stream:           "test-stream",
+			DeadletterStream: "test-dlq",
+			Group:            "test-group",
+			Consumer:         "test-consumer",
+			BlockTime:        tt.blockTime,
+		}
 
 			// Verify config has the right blockTime
 			if cfg.BlockTime != tt.blockTime {

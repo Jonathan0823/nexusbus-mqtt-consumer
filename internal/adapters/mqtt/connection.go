@@ -1,12 +1,24 @@
 package mqtt
 
-import "modbus-mqtt-consumer/internal/platform/logging"
+import (
+	"modbus-mqtt-consumer/internal/platform/config"
+	"modbus-mqtt-consumer/internal/platform/logging"
 
-// NewConnection creates an MQTT subscriber connection.
-// This factory follows the design.md adapter creation pattern.
-func NewConnection(cfg MQTTConfig, logger *logging.Logger) *Subscriber {
-	return &Subscriber{
-		config: cfg,
-		logger: logger,
+	mqtt "github.com/eclipse/paho.mqtt.golang"
+)
+
+// NewClient creates a new MQTT client (not yet connected).
+func NewClient(cfg config.MQTTConfig, logger *logging.Logger) (mqtt.Client, error) {
+	opts := mqtt.NewClientOptions().
+		SetClientID(cfg.ClientID).
+		SetCleanSession(cfg.CleanSession).
+		AddBroker(cfg.Broker).
+		SetConnectTimeout(cfg.Timeout)
+
+	if cfg.Username != "" {
+		opts.SetUsername(cfg.Username)
+		opts.SetPassword(cfg.Password)
 	}
+
+	return mqtt.NewClient(opts), nil
 }

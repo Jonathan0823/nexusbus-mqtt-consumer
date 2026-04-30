@@ -84,6 +84,8 @@ Other common variables:
 - `HTTP_LISTEN_ADDR`
 - `MQTT_CLIENT_ID`
 - `MQTT_TOPIC`
+- `MQTT_QOS`
+- `MQTT_TIMEOUT`
 - `MQTT_USERNAME`
 - `MQTT_PASSWORD`
 - `REDIS_DB`
@@ -107,7 +109,7 @@ Other common variables:
 
 Reserved or partially wired settings are documented in `docs/operation_appendix.md` and may be kept for future expansion: `MQTT_SESSION_EXPIRY`, `REDIS_READ_COUNT`, `POSTGRES_MAX_READ_CONNS`, `WORKER_RETRY_BACKOFF_INITIAL`, and `WORKER_RETRY_BACKOFF_MAX`.
 
-See `.env.example` for a full example.
+See `.env.example` for a full example (default `MQTT_TIMEOUT` is `30s`).
 
 ## Device Profiles
 

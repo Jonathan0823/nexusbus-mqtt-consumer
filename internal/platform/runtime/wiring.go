@@ -54,30 +54,25 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 	w.Metrics = metrics.NewRecorder()
 
 	// Redis Stream Buffer
-	redisBuf, err := redis.NewStreamBuffer(redis.Config{
-		Addr:             cfg.Redis.Addr,
-		Password:         cfg.Redis.Password,
-		DB:               cfg.Redis.DB,
-		Stream:           cfg.Redis.Stream,
-		DeadletterStream: cfg.Redis.DeadletterStream,
-		Group:            cfg.Redis.Group,
-		Consumer:         cfg.Redis.Consumer,
-		BlockTime:        cfg.Redis.BlockTime,
-	}, logger)
+	redisClient, err := redis.NewClient(cfg.Redis, logger)
 	if err != nil {
-		return nil, fmt.Errorf("redis connection: %w", err)
+		return nil, fmt.Errorf("redis client: %w", err)
+	}
+
+	redisBuf, err := redis.NewStreamBuffer(redisClient, cfg.Redis, logger)
+	if err != nil {
+		_ = redisClient.Close()
+		return nil, fmt.Errorf("redis buffer: %w", err)
 	}
 	w.RedisBuffer = redisBuf
 
 	// PostgreSQL Repository
-	postgresRepo, err := postgres.NewRepository(ctx, postgres.Config{
-		DSN:           cfg.Postgres.DSN,
-		MaxWriteConns: cfg.Postgres.MaxWriteConns,
-		MaxReadConns:  cfg.Postgres.MaxReadConns,
-	}, logger)
+	postgresPool, err := postgres.NewPool(ctx, cfg.Postgres, logger)
 	if err != nil {
-		return nil, fmt.Errorf("postgres connection: %w", err)
+		return nil, fmt.Errorf("postgres pool: %w", err)
 	}
+
+	postgresRepo := postgres.NewRepository(postgresPool, logger)
 	w.PostgresRepo = postgresRepo
 
 	// Profile Registry
@@ -90,17 +85,14 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 	// Ingest Service
 	w.IngestService = service.NewIngestService(w.RedisBuffer, logger)
 
+	// MQTT Client
+	mqttClient, err := mqtt.NewClient(cfg.MQTT, logger)
+	if err != nil {
+		return nil, fmt.Errorf("mqtt client: %w", err)
+	}
+
 	// MQTT Subscriber
-	w.MQTTSubscriber = mqtt.NewSubscriber(mqtt.MQTTConfig{
-		Broker:       cfg.MQTT.Broker,
-		ClientID:     cfg.MQTT.ClientID,
-		Topic:        cfg.MQTT.Topic,
-		QOS:          byte(cfg.MQTT.QOS),
-		CleanSession: cfg.MQTT.CleanSession,
-		Username:     cfg.MQTT.Username,
-		Password:     cfg.MQTT.Password,
-		Timeout:      30 * time.Second,
-	}, logger)
+	w.MQTTSubscriber = mqtt.NewSubscriber(cfg.MQTT, mqttClient, logger)
 
 	// Worker Service
 	w.WorkerService = service.NewWorkerService(
@@ -140,7 +132,14 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 
 	// HTTP routes and server
 	mux := httphandler.NewMux(w.HTTPHandler)
-	w.HTTPServer = httphandler.NewServer(cfg.HTTP.ListenAddr, mux)
+	w.HTTPServer = &http.Server{
+		Addr:              cfg.HTTP.ListenAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 
 	return w, nil
 }
