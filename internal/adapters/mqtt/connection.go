@@ -22,15 +22,3 @@ func NewClient(cfg config.MQTTConfig, logger *logging.Logger) (mqtt.Client, erro
 
 	return mqtt.NewClient(opts), nil
 }
-
-// NewConnection is a compatibility shim that creates client and subscriber.
-// Deprecated: use NewClient + NewSubscriber instead.
-func NewConnection(cfg config.MQTTConfig, logger *logging.Logger) *Subscriber {
-	client, err := NewClient(cfg, logger)
-	if err != nil {
-		// In practice this shouldn't happen during construction,
-		// but we panic here because NewSubscriber requires a client.
-		panic(err)
-	}
-	return NewSubscriber(cfg, client, logger)
-}
