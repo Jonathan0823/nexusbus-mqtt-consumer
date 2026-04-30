@@ -35,30 +35,17 @@ type Config struct {
 	BlockTime        time.Duration
 }
 
-// NewStreamBuffer creates a new Redis Stream buffer.
-func NewStreamBuffer(cfg Config, logger *logging.Logger) (*StreamBuffer, error) {
-	options, err := redis.ParseURL(cfg.Addr)
-	if err != nil {
-		options = &redis.Options{Addr: cfg.Addr}
-	}
-	options.Password = cfg.Password
-	options.DB = cfg.DB
-
-	client := redis.NewClient(options)
-
-	// Ping to verify connection
+// NewStreamBuffer creates a new Redis Stream buffer from an existing client.
+func NewStreamBuffer(client *redis.Client, cfg Config, logger *logging.Logger) (*StreamBuffer, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := client.Ping(ctx).Err(); err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("redis connect failed: %w", err)
+		return nil, fmt.Errorf("redis ping failed: %w", err)
 	}
 
-	// Create consumer group if it doesn't exist
-	err = client.XGroupCreateMkStream(ctx, cfg.Stream, cfg.Group, "0").Err()
+	err := client.XGroupCreateMkStream(ctx, cfg.Stream, cfg.Group, "0").Err()
 	if err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
-		_ = client.Close()
 		return nil, fmt.Errorf("create consumer group: %w", err)
 	}
 
