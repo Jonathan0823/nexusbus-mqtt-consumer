@@ -15,10 +15,12 @@ import (
 func NewClient(cfg config.RedisConfig, logger *logging.Logger) (*redis.Client, error) {
 	options, err := redis.ParseURL(cfg.Addr)
 	if err != nil {
-		options = &redis.Options{Addr: cfg.Addr}
+		options = &redis.Options{
+			Addr:     cfg.Addr,
+			Password: cfg.Password,
+			DB:       cfg.DB,
+		}
 	}
-	options.Password = cfg.Password
-	options.DB = cfg.DB
 
 	client := redis.NewClient(options)
 
