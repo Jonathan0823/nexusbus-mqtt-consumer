@@ -7,9 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eclipse/paho.mqtt.golang"
 	"modbus-mqtt-consumer/internal/core/domain"
 	"modbus-mqtt-consumer/internal/platform/logging"
+
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 // Subscriber implements MQTTSubscriber using paho.mqtt.golang.
@@ -35,10 +36,11 @@ type MQTTConfig struct {
 	Timeout       time.Duration
 }
 
-// NewSubscriber creates a new MQTT subscriber.
-func NewSubscriber(cfg MQTTConfig, logger *logging.Logger) *Subscriber {
+// NewSubscriber creates a new MQTT subscriber with an injected client.
+func NewSubscriber(cfg MQTTConfig, client mqtt.Client, logger *logging.Logger) *Subscriber {
 	return &Subscriber{
 		config: cfg,
+		client: client,
 		logger: logger,
 	}
 }
@@ -47,29 +49,13 @@ func NewSubscriber(cfg MQTTConfig, logger *logging.Logger) *Subscriber {
 func (s *Subscriber) Subscribe(ctx context.Context, handler func(msg domain.RawTelemetryPayload) error) error {
 	s.onMessage = handler
 
-	opts := mqtt.NewClientOptions().
-		SetClientID(s.config.ClientID).
-		SetCleanSession(s.config.CleanSession).
-		AddBroker(s.config.Broker).
-		SetConnectTimeout(s.config.Timeout).
-		SetOnConnectHandler(s.onConnect).
-		SetConnectionLostHandler(s.onConnectionLost).
-		SetDefaultPublishHandler(s.onPublish)
-
-	if s.config.Username != "" {
-		opts.SetUsername(s.config.Username)
-		opts.SetPassword(s.config.Password)
-	}
-
-	s.client = mqtt.NewClient(opts)
-
-	// Connect with context
+	// Connect
 	if token := s.client.Connect(); token.Wait() && token.Error() != nil {
 		return fmt.Errorf("mqtt connect failed: %w", token.Error())
 	}
 
 	// Subscribe to topic
-	topicHandler := func(client mqtt.Client, msg mqtt.Message) {
+	topicHandler := func(_ mqtt.Client, msg mqtt.Message) {
 		s.handleMessage(msg)
 	}
 
@@ -90,33 +76,11 @@ func (s *Subscriber) handleMessage(msg mqtt.Message) {
 		return
 	}
 
-	// Call the registered handler
 	if s.onMessage != nil {
 		if err := s.onMessage(payload); err != nil {
 			s.logger.Error("mqtt message handler error", "error", err)
 		}
 	}
-}
-
-// onConnect is called when the client connects.
-func (s *Subscriber) onConnect(client mqtt.Client) {
-	s.mu.Lock()
-	s.connected = true
-	s.mu.Unlock()
-	s.logger.Info("mqtt connected")
-}
-
-// onConnectionLost is called when the connection is lost.
-func (s *Subscriber) onConnectionLost(client mqtt.Client, err error) {
-	s.mu.Lock()
-	s.connected = false
-	s.mu.Unlock()
-	s.logger.Error("mqtt connection lost", "error", err)
-}
-
-// onPublish is the default publish handler.
-func (s *Subscriber) onPublish(client mqtt.Client, msg mqtt.Message) {
-	s.logger.Debug("mqtt message received", "topic", msg.Topic())
 }
 
 // IsConnected returns true if the client is connected.
