@@ -64,14 +64,9 @@ func (s *Subscriber) Subscribe(ctx context.Context, handler func(msg domain.RawT
 	s.client = mqtt.NewClient(opts)
 
 	// Connect with context
-	connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
 	if token := s.client.Connect(); token.Wait() && token.Error() != nil {
 		return fmt.Errorf("mqtt connect failed: %w", token.Error())
 	}
-
-	<-connectCtx.Done()
 
 	// Subscribe to topic
 	topicHandler := func(client mqtt.Client, msg mqtt.Message) {
