@@ -51,12 +51,14 @@ func NewStreamBuffer(cfg Config, logger *logging.Logger) (*StreamBuffer, error) 
 	defer cancel()
 
 	if err := client.Ping(ctx).Err(); err != nil {
+		_ = client.Close()
 		return nil, fmt.Errorf("redis connect failed: %w", err)
 	}
 
 	// Create consumer group if it doesn't exist
 	err = client.XGroupCreateMkStream(ctx, cfg.Stream, cfg.Group, "0").Err()
 	if err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
+		_ = client.Close()
 		return nil, fmt.Errorf("create consumer group: %w", err)
 	}
 
