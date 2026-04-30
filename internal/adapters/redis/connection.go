@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"modbus-mqtt-consumer/internal/platform/config"
 	"modbus-mqtt-consumer/internal/platform/logging"
+
+	"github.com/go-redis/redis/v8"
 )
 
 // NewClient creates a new Redis client.
-func NewClient(cfg Config, logger *logging.Logger) (*redis.Client, error) {
+func NewClient(cfg config.RedisConfig, logger *logging.Logger) (*redis.Client, error) {
 	options, err := redis.ParseURL(cfg.Addr)
 	if err != nil {
 		options = &redis.Options{Addr: cfg.Addr}

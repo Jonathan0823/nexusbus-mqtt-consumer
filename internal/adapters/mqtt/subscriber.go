@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
-	"time"
 
 	"modbus-mqtt-consumer/internal/core/domain"
+	"modbus-mqtt-consumer/internal/platform/config"
 	"modbus-mqtt-consumer/internal/platform/logging"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -15,7 +15,7 @@ import (
 
 // Subscriber implements MQTTSubscriber using paho.mqtt.golang.
 type Subscriber struct {
-	config    MQTTConfig
+	config    config.MQTTConfig
 	client    mqtt.Client
 	connected bool
 	mu        sync.RWMutex
@@ -23,21 +23,8 @@ type Subscriber struct {
 	logger    *logging.Logger
 }
 
-// MQTTConfig holds MQTT connection settings (local subset).
-type MQTTConfig struct {
-	Broker        string
-	ClientID      string
-	Topic         string
-	QOS           byte
-	CleanSession  bool
-	Username      string
-	Password      string
-	SessionExpiry time.Duration
-	Timeout       time.Duration
-}
-
 // NewSubscriber creates a new MQTT subscriber with an injected client.
-func NewSubscriber(cfg MQTTConfig, client mqtt.Client, logger *logging.Logger) *Subscriber {
+func NewSubscriber(cfg config.MQTTConfig, client mqtt.Client, logger *logging.Logger) *Subscriber {
 	return &Subscriber{
 		config: cfg,
 		client: client,
@@ -59,7 +46,8 @@ func (s *Subscriber) Subscribe(ctx context.Context, handler func(msg domain.RawT
 		s.handleMessage(msg)
 	}
 
-	token := s.client.Subscribe(s.config.Topic, s.config.QOS, topicHandler)
+	qos := byte(s.config.QOS)
+	token := s.client.Subscribe(s.config.Topic, qos, topicHandler)
 	if token.Wait() && token.Error() != nil {
 		return fmt.Errorf("mqtt subscribe failed: %w", token.Error())
 	}

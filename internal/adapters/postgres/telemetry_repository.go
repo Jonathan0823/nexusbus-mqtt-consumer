@@ -17,13 +17,6 @@ type Repository struct {
 	logger *logging.Logger
 }
 
-// Config holds PostgreSQL connection configuration.
-type Config struct {
-	DSN           string
-	MaxWriteConns int
-	MaxReadConns  int
-}
-
 // NewRepository creates a new PostgreSQL repository from an existing pool.
 func NewRepository(pool *pgxpool.Pool, logger *logging.Logger) *Repository {
 	return &Repository{

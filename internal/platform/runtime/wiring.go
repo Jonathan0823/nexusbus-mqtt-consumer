@@ -54,30 +54,12 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 	w.Metrics = metrics.NewRecorder()
 
 	// Redis Stream Buffer
-	redisClient, err := redis.NewClient(redis.Config{
-		Addr:             cfg.Redis.Addr,
-		Password:         cfg.Redis.Password,
-		DB:               cfg.Redis.DB,
-		Stream:           cfg.Redis.Stream,
-		DeadletterStream: cfg.Redis.DeadletterStream,
-		Group:            cfg.Redis.Group,
-		Consumer:         cfg.Redis.Consumer,
-		BlockTime:        cfg.Redis.BlockTime,
-	}, logger)
+	redisClient, err := redis.NewClient(cfg.Redis, logger)
 	if err != nil {
 		return nil, fmt.Errorf("redis client: %w", err)
 	}
 
-	redisBuf, err := redis.NewStreamBuffer(redisClient, redis.Config{
-		Addr:             cfg.Redis.Addr,
-		Password:         cfg.Redis.Password,
-		DB:               cfg.Redis.DB,
-		Stream:           cfg.Redis.Stream,
-		DeadletterStream: cfg.Redis.DeadletterStream,
-		Group:            cfg.Redis.Group,
-		Consumer:         cfg.Redis.Consumer,
-		BlockTime:        cfg.Redis.BlockTime,
-	}, logger)
+	redisBuf, err := redis.NewStreamBuffer(redisClient, cfg.Redis, logger)
 	if err != nil {
 		_ = redisClient.Close()
 		return nil, fmt.Errorf("redis buffer: %w", err)
@@ -85,11 +67,7 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 	w.RedisBuffer = redisBuf
 
 	// PostgreSQL Repository
-	postgresPool, err := postgres.NewPool(ctx, postgres.Config{
-		DSN:           cfg.Postgres.DSN,
-		MaxWriteConns: cfg.Postgres.MaxWriteConns,
-		MaxReadConns:  cfg.Postgres.MaxReadConns,
-	}, logger)
+	postgresPool, err := postgres.NewPool(ctx, cfg.Postgres, logger)
 	if err != nil {
 		return nil, fmt.Errorf("postgres pool: %w", err)
 	}
@@ -108,23 +86,13 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 	w.IngestService = service.NewIngestService(w.RedisBuffer, logger)
 
 	// MQTT Client
-	mqttCfg := mqtt.MQTTConfig{
-		Broker:       cfg.MQTT.Broker,
-		ClientID:     cfg.MQTT.ClientID,
-		Topic:        cfg.MQTT.Topic,
-		QOS:          byte(cfg.MQTT.QOS),
-		CleanSession: cfg.MQTT.CleanSession,
-		Username:     cfg.MQTT.Username,
-		Password:     cfg.MQTT.Password,
-		Timeout:      30 * time.Second,
-	}
-	mqttClient, err := mqtt.NewClient(mqttCfg, logger)
+	mqttClient, err := mqtt.NewClient(cfg.MQTT, logger)
 	if err != nil {
 		return nil, fmt.Errorf("mqtt client: %w", err)
 	}
 
 	// MQTT Subscriber
-	w.MQTTSubscriber = mqtt.NewSubscriber(mqttCfg, mqttClient, logger)
+	w.MQTTSubscriber = mqtt.NewSubscriber(cfg.MQTT, mqttClient, logger)
 
 	// Worker Service
 	w.WorkerService = service.NewWorkerService(

@@ -5,11 +5,12 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"modbus-mqtt-consumer/internal/platform/config"
 	"modbus-mqtt-consumer/internal/platform/logging"
 )
 
 // NewPool creates a PostgreSQL connection pool.
-func NewPool(ctx context.Context, cfg Config, logger *logging.Logger) (*pgxpool.Pool, error) {
+func NewPool(ctx context.Context, cfg config.PostgresConfig, logger *logging.Logger) (*pgxpool.Pool, error) {
 	poolConfig, err := pgxpool.ParseConfig(cfg.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("parse dsn: %w", err)
@@ -30,3 +31,4 @@ func NewPool(ctx context.Context, cfg Config, logger *logging.Logger) (*pgxpool.
 	logger.Info("postgres connected", "max_conns", cfg.MaxWriteConns)
 	return pool, nil
 }
+

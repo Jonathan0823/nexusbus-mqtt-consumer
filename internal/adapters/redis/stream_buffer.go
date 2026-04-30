@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 	"modbus-mqtt-consumer/internal/core/domain"
+	"modbus-mqtt-consumer/internal/platform/config"
 	"modbus-mqtt-consumer/internal/platform/logging"
 )
 
@@ -23,20 +24,8 @@ type StreamBuffer struct {
 	logger           *logging.Logger
 }
 
-// Config holds Redis connection configuration.
-type Config struct {
-	Addr             string
-	Password         string
-	DB               int
-	Stream           string
-	DeadletterStream string
-	Group            string
-	Consumer         string
-	BlockTime        time.Duration
-}
-
 // NewStreamBuffer creates a new Redis Stream buffer from an existing client.
-func NewStreamBuffer(client *redis.Client, cfg Config, logger *logging.Logger) (*StreamBuffer, error) {
+func NewStreamBuffer(client *redis.Client, cfg config.RedisConfig, logger *logging.Logger) (*StreamBuffer, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

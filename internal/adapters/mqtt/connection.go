@@ -1,13 +1,14 @@
 package mqtt
 
 import (
+	"modbus-mqtt-consumer/internal/platform/config"
 	"modbus-mqtt-consumer/internal/platform/logging"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 // NewClient creates a new MQTT client (not yet connected).
-func NewClient(cfg MQTTConfig, logger *logging.Logger) (mqtt.Client, error) {
+func NewClient(cfg config.MQTTConfig, logger *logging.Logger) (mqtt.Client, error) {
 	opts := mqtt.NewClientOptions().
 		SetClientID(cfg.ClientID).
 		SetCleanSession(cfg.CleanSession).
@@ -24,7 +25,7 @@ func NewClient(cfg MQTTConfig, logger *logging.Logger) (mqtt.Client, error) {
 
 // NewConnection is a compatibility shim that creates client and subscriber.
 // Deprecated: use NewClient + NewSubscriber instead.
-func NewConnection(cfg MQTTConfig, logger *logging.Logger) *Subscriber {
+func NewConnection(cfg config.MQTTConfig, logger *logging.Logger) *Subscriber {
 	client, err := NewClient(cfg, logger)
 	if err != nil {
 		// In practice this shouldn't happen during construction,
