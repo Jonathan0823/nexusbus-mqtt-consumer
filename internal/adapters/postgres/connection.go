@@ -30,13 +30,3 @@ func NewPool(ctx context.Context, cfg Config, logger *logging.Logger) (*pgxpool.
 	logger.Info("postgres connected", "max_conns", cfg.MaxWriteConns)
 	return pool, nil
 }
-
-// NewConnection is a compatibility shim that creates pool and repository.
-// Deprecated: use NewPool + NewRepository instead.
-func NewConnection(ctx context.Context, cfg Config, logger *logging.Logger) (*Repository, error) {
-	pool, err := NewPool(ctx, cfg, logger)
-	if err != nil {
-		return nil, err
-	}
-	return NewRepository(pool, logger), nil
-}

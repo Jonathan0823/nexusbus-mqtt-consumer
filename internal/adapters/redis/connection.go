@@ -31,13 +31,3 @@ func NewClient(cfg Config, logger *logging.Logger) (*redis.Client, error) {
 	logger.Info("redis client connected", "addr", cfg.Addr)
 	return client, nil
 }
-
-// NewConnection is a compatibility shim that creates both client and buffer.
-// Deprecated: use NewClient + NewStreamBuffer instead.
-func NewConnection(cfg Config, logger *logging.Logger) (*StreamBuffer, error) {
-	client, err := NewClient(cfg, logger)
-	if err != nil {
-		return nil, err
-	}
-	return NewStreamBuffer(client, cfg, logger)
-}

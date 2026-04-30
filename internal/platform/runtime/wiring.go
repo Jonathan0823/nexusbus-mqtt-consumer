@@ -54,7 +54,7 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 	w.Metrics = metrics.NewRecorder()
 
 	// Redis Stream Buffer
-	redisBuf, err := redis.NewStreamBuffer(redis.Config{
+	redisClient, err := redis.NewClient(redis.Config{
 		Addr:             cfg.Redis.Addr,
 		Password:         cfg.Redis.Password,
 		DB:               cfg.Redis.DB,
@@ -65,19 +65,36 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 		BlockTime:        cfg.Redis.BlockTime,
 	}, logger)
 	if err != nil {
-		return nil, fmt.Errorf("redis connection: %w", err)
+		return nil, fmt.Errorf("redis client: %w", err)
+	}
+
+	redisBuf, err := redis.NewStreamBuffer(redisClient, redis.Config{
+		Addr:             cfg.Redis.Addr,
+		Password:         cfg.Redis.Password,
+		DB:               cfg.Redis.DB,
+		Stream:           cfg.Redis.Stream,
+		DeadletterStream: cfg.Redis.DeadletterStream,
+		Group:            cfg.Redis.Group,
+		Consumer:         cfg.Redis.Consumer,
+		BlockTime:        cfg.Redis.BlockTime,
+	}, logger)
+	if err != nil {
+		_ = redisClient.Close()
+		return nil, fmt.Errorf("redis buffer: %w", err)
 	}
 	w.RedisBuffer = redisBuf
 
 	// PostgreSQL Repository
-	postgresRepo, err := postgres.NewRepository(ctx, postgres.Config{
+	postgresPool, err := postgres.NewPool(ctx, postgres.Config{
 		DSN:           cfg.Postgres.DSN,
 		MaxWriteConns: cfg.Postgres.MaxWriteConns,
 		MaxReadConns:  cfg.Postgres.MaxReadConns,
 	}, logger)
 	if err != nil {
-		return nil, fmt.Errorf("postgres connection: %w", err)
+		return nil, fmt.Errorf("postgres pool: %w", err)
 	}
+
+	postgresRepo := postgres.NewRepository(postgresPool, logger)
 	w.PostgresRepo = postgresRepo
 
 	// Profile Registry
