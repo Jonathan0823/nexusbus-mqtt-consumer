@@ -41,6 +41,10 @@ func (s *Subscriber) Subscribe(ctx context.Context, handler func(msg domain.RawT
 		return fmt.Errorf("mqtt connect failed: %w", token.Error())
 	}
 
+	s.mu.Lock()
+	s.connected = true
+	s.mu.Unlock()
+
 	// Subscribe to topic
 	topicHandler := func(_ mqtt.Client, msg mqtt.Message) {
 		s.handleMessage(msg)
@@ -84,5 +88,10 @@ func (s *Subscriber) Close() error {
 		s.client.Disconnect(500)
 	}
 	s.logger.Info("mqtt disconnected")
+
+	s.mu.Lock()
+	s.connected = false
+	s.mu.Unlock()
+
 	return nil
 }
