@@ -61,6 +61,30 @@ func TestNormalizeTimestamp_InvalidTimestamp(t *testing.T) {
 	}
 }
 
+func TestNormalizeTimestamp_ScientificNotation(t *testing.T) {
+	// Example: 1.7773571826396542e+09 represents 1777357182.6396542
+	payload := RawTelemetryPayload{
+		DeviceID:  "test-device",
+		Values:    []int{1, 2, 3},
+		Timestamp: "1.7773571826396542e+09",
+	}
+
+	result, err := NormalizeTimestamp(payload)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedSec := int64(1777357182)
+	expectedNsec := 639654200
+
+	if result.Unix() != expectedSec {
+		t.Errorf("expected seconds %d, got %d", expectedSec, result.Unix())
+	}
+	if result.Nanosecond() != expectedNsec {
+		t.Errorf("expected nanoseconds %d, got %d", expectedNsec, result.Nanosecond())
+	}
+}
+
 func TestBuildIdempotencyKey_NoTimestampNoMessageID_Deterministic(t *testing.T) {
 	// Create payload without timestamp and message_id
 	payload := RawTelemetryPayload{

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -107,7 +108,7 @@ func BuildIdempotencyKey(payload RawTelemetryPayload, normalizedTime time.Time) 
 }
 
 // NormalizeTimestamp converts Unix epoch timestamp from payload to time.Time.
-// Input: Unix epoch seconds with fractional part (e.g., 1777357182.6396542)
+// Input: Unix epoch seconds with fractional part (e.g., 1777357182.6396542 or 1.7773571826396542e+09).
 // When timestamp is empty, returns epoch zero (1970-01-01) to ensure deterministic
 // idempotency keys across retries.
 func NormalizeTimestamp(payload RawTelemetryPayload) (time.Time, error) {
@@ -116,6 +117,52 @@ func NormalizeTimestamp(payload RawTelemetryPayload) (time.Time, error) {
 	}
 
 	raw := payload.Timestamp.String()
+
+	// If the string contains exponent notation, parse with big.Rat to preserve precision.
+	if strings.Contains(raw, "e") || strings.Contains(raw, "E") {
+		// Split into mantissa and exponent: "1.777...e+09" -> mantissa="1.777...", exp=+9
+		parts := strings.FieldsFunc(raw, func(r rune) bool {
+			return r == 'e' || r == 'E'
+		})
+		if len(parts) != 2 {
+			return time.Time{}, fmt.Errorf("invalid scientific notation: %s", raw)
+		}
+		mantissaStr := parts[0]
+		expStr := parts[1]
+
+		// Parse mantissa as a rational number (exact decimal representation).
+		mantissa := new(big.Rat)
+		if _, ok := mantissa.SetString(mantissaStr); !ok {
+			return time.Time{}, fmt.Errorf("invalid mantissa: %s", mantissaStr)
+		}
+
+		// Parse exponent (may have + or - sign).
+		exp, err := strconv.Atoi(expStr)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid exponent: %w", err)
+		}
+
+		// Multiply mantissa by 10^exp: value = mantissa * 10^exp.
+		multiplier := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(exp)), nil))
+		value := new(big.Rat).Mul(mantissa, multiplier)
+
+		// Convert to total nanoseconds: value * 1e9.
+		ns := new(big.Rat).Mul(value, big.NewRat(1_000_000_000, 1))
+		totalNsec := ns.Num()
+		// Ensure denominator is 1 (it should be after multiplication by integer 1e9).
+		if ns.Denom().Sign() != 1 {
+			totalNsec.Div(totalNsec, ns.Denom())
+		}
+
+		secBig := new(big.Int).Div(totalNsec, big.NewInt(1_000_000_000))
+		nsecBig := new(big.Int).Rem(totalNsec, big.NewInt(1_000_000_000))
+
+		sec := secBig.Int64()
+		nsec := nsecBig.Int64()
+		return time.Unix(sec, nsec).UTC(), nil
+	}
+
+	// Decimal path: exact string-based parsing to avoid floating-point rounding.
 	secPart, fracPart, hasFrac := strings.Cut(raw, ".")
 	sec, err := strconv.ParseInt(secPart, 10, 64)
 	if err != nil {
