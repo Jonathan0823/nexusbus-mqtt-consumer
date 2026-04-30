@@ -35,6 +35,9 @@ func NewRecorder() *Recorder {
 
 // incMap increments a counter in a map, creating if needed.
 func (r *Recorder) incMap(m map[string]*atomic.Int64, key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	_, ok := m[key]
 	if !ok {
 		m[key] = &atomic.Int64{}
@@ -130,6 +133,10 @@ func (r *Recorder) Snapshot() Metrics {
 // String returns a Prometheus-formatted string.
 func (r *Recorder) String() string {
 	s := r.Snapshot()
+	rejectedTotal := int64(0)
+	for _, v := range s.MQTTRejectedTotal {
+		rejectedTotal += v
+	}
 	return fmt.Sprintf(`# HELP mqtt_messages_received_total Total MQTT messages received
 # TYPE mqtt_messages_received_total counter
 mqtt_messages_received_total %d
@@ -151,7 +158,7 @@ worker_messages_deadlettered_total %d
 # HELP worker_batch_insert_duration_ms_avg Average batch insert duration in ms
 # TYPE worker_batch_insert_duration_ms_avg gauge
 worker_batch_insert_duration_ms_avg %.2f
-`, s.MQTTReceivedTotal, s.MQTTRejectedTotal["total"], s.RedisXAddErrorTotal,
+`, s.MQTTReceivedTotal, rejectedTotal, s.RedisXAddErrorTotal,
 		s.WorkerProcessedTotal, s.WorkerDuplicateTotal, s.DeadletteredTotal, s.AvgBatchInsertMs)
 }
 

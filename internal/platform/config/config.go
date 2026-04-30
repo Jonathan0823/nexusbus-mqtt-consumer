@@ -31,13 +31,14 @@ type ServiceConfig struct {
 
 // MQTTConfig holds MQTT connection settings.
 type MQTTConfig struct {
-	Broker        string
-	ClientID      string
-	Topic         string
-	QOS           int
-	CleanSession  bool
-	Username      string
-	Password      string // resolved from env
+	Broker       string
+	ClientID     string
+	Topic        string
+	QOS          int
+	CleanSession bool
+	Username     string
+	Password     string // resolved from env
+	// Reserved for future MQTT v5 session control; documented but not yet wired.
 	SessionExpiry time.Duration
 }
 
@@ -50,18 +51,20 @@ type RedisConfig struct {
 	DeadletterStream string
 	Group            string
 	Consumer         string
-	ReadCount        int
-	BlockTime        time.Duration
-	MinIdleTime      time.Duration
+	// Reserved for future tuning of Redis reads; documented but not yet wired.
+	ReadCount   int
+	BlockTime   time.Duration
+	MinIdleTime time.Duration
 }
 
 // PostgresConfig holds PostgreSQL connection settings.
 type PostgresConfig struct {
 	DSN           string // resolved from env
 	MaxWriteConns int
-	MaxReadConns  int
-	BatchSize     int
-	BatchTimeout  time.Duration
+	// Reserved for future read/write pool separation; documented but not yet wired.
+	MaxReadConns int
+	BatchSize    int
+	BatchTimeout time.Duration
 }
 
 // ProfilesConfig holds profile registry settings.
@@ -71,7 +74,8 @@ type ProfilesConfig struct {
 
 // WorkerConfig holds worker behavior settings.
 type WorkerConfig struct {
-	MaxRetries          int
+	MaxRetries int
+	// Reserved for future retry backoff scheduling; documented but not yet wired.
 	RetryBackoffInitial time.Duration
 	RetryBackoffMax     time.Duration
 }

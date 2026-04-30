@@ -1,7 +1,9 @@
 package yamlprofile
 
 import (
+	"bytes"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 
@@ -24,7 +26,9 @@ func NewRegistry(path string, logger *logging.Logger) (*Registry, error) {
 	}
 
 	var file profilesFile
-	if err := yaml.Unmarshal(data, &file); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&file); err != nil {
 		return nil, fmt.Errorf("parse profiles: %w", err)
 	}
 
@@ -100,10 +104,10 @@ func (r *Registry) matchByRegisters(payload domain.RawTelemetryPayload) *domain.
 		if profile.Match.RegisterType != "" && profile.Match.RegisterType != payload.RegisterType {
 			continue
 		}
-		if profile.Match.Address != 0 && profile.Match.Address != payload.Address {
+		if profile.Match.Address != nil && *profile.Match.Address != payload.Address {
 			continue
 		}
-		if profile.Match.Count != 0 && profile.Match.Count != payload.Count {
+		if profile.Match.Count != nil && *profile.Match.Count != payload.Count {
 			continue
 		}
 		p := profile
@@ -134,7 +138,10 @@ func (r *Registry) Transform(payload domain.RawTelemetryPayload, profile *domain
 			continue
 		}
 
-		rawValue := float64(payload.Values[mapping.Index])
+		rawValue, err := r.decodeValue(payload.Values[mapping.Index], mapping.Type)
+		if err != nil {
+			return nil, err
+		}
 		value := rawValue * mapping.Multiplier
 
 		result[mapping.Key] = value
@@ -144,4 +151,23 @@ func (r *Registry) Transform(payload domain.RawTelemetryPayload, profile *domain
 	}
 
 	return result, nil
+}
+
+func (r *Registry) decodeValue(raw int, mappingType string) (float64, error) {
+	switch strings.ToLower(mappingType) {
+	case "", "uint16", "uint32", "float":
+		return float64(raw), nil
+	case "int16":
+		if raw < math.MinInt16 || raw > math.MaxInt16 {
+			return 0, fmt.Errorf("value %d out of range for int16", raw)
+		}
+		return float64(int16(raw)), nil
+	case "int32":
+		if raw < math.MinInt32 || raw > math.MaxInt32 {
+			return 0, fmt.Errorf("value %d out of range for int32", raw)
+		}
+		return float64(int32(raw)), nil
+	default:
+		return 0, fmt.Errorf("unsupported metric mapping type %q", mappingType)
+	}
 }

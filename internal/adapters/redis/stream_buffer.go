@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -50,13 +51,15 @@ func NewStreamBuffer(cfg Config, logger *logging.Logger) (*StreamBuffer, error) 
 	defer cancel()
 
 	if err := client.Ping(ctx).Err(); err != nil {
+		_ = client.Close()
 		return nil, fmt.Errorf("redis connect failed: %w", err)
 	}
 
 	// Create consumer group if it doesn't exist
 	err = client.XGroupCreateMkStream(ctx, cfg.Stream, cfg.Group, "0").Err()
-	if err != nil && err.Error() != "BUSYGROUP Consumer Group name already exists" {
-		logger.Warn("redis group creation", "error", err)
+	if err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
+		_ = client.Close()
+		return nil, fmt.Errorf("create consumer group: %w", err)
 	}
 
 	return &StreamBuffer{
@@ -65,6 +68,7 @@ func NewStreamBuffer(cfg Config, logger *logging.Logger) (*StreamBuffer, error) 
 		deadletterStream: cfg.DeadletterStream,
 		group:            cfg.Group,
 		consumer:         cfg.Consumer,
+		blockTime:        cfg.BlockTime,
 		logger:           logger,
 	}, nil
 }
@@ -97,13 +101,20 @@ func (s *StreamBuffer) Add(ctx context.Context, msg domain.RawTelemetryMessage) 
 
 // ReadBatch reads a batch of messages from the stream.
 func (s *StreamBuffer) ReadBatch(ctx context.Context, max int) ([]domain.BufferedMessage, error) {
+	// Apply block time with fallback to default (1 second) to ensure
+	// stale recovery can run even when no messages are available.
+	blockTime := s.blockTime
+	if blockTime <= 0 {
+		blockTime = time.Second // default 1 second fallback
+	}
+
 	// Use XREADGROUP to read new messages
 	streams, err := s.client.XReadGroup(ctx, &redis.XReadGroupArgs{
 		Group:    s.group,
 		Consumer: s.consumer,
 		Streams:  []string{s.stream, ">"},
 		Count:    int64(max),
-		Block:    0, // blocking
+		Block:    blockTime,
 	}).Result()
 
 	if err == redis.Nil {
@@ -118,7 +129,10 @@ func (s *StreamBuffer) ReadBatch(ctx context.Context, max int) ([]domain.Buffere
 		for _, msg := range stream.Messages {
 			parsed, err := s.parseMessage(msg)
 			if err != nil {
-				s.logger.Error("parse message error", "id", msg.ID, "error", err)
+				s.logger.Warn("parse message error; acknowledging poison message", "id", msg.ID, "error", err)
+				if ackErr := s.Ack(ctx, []string{msg.ID}); ackErr != nil {
+					s.logger.Error("ack poison message failed", "id", msg.ID, "error", ackErr)
+				}
 				continue
 			}
 			messages = append(messages, parsed)
@@ -219,13 +233,11 @@ func (s *StreamBuffer) ClaimStale(ctx context.Context, minIdle time.Duration, ma
 		// Extract fields from the nested array.
 		values, ok := msgArr[1].([]interface{})
 		if !ok {
-			// No fields - still try to parse with empty map
-			parsed, err := s.parseMessage(redis.XMessage{ID: id, Values: nil})
-			if err != nil {
-				s.logger.Error("claim parse error", "id", id, "error", err)
-				continue
+			// No fields - acknowledge so the poison message cannot loop forever.
+			s.logger.Warn("claim parse error; acknowledging poison message", "id", id)
+			if ackErr := s.Ack(ctx, []string{id}); ackErr != nil {
+				s.logger.Error("ack poison message failed", "id", id, "error", ackErr)
 			}
-			messages = append(messages, parsed)
 			continue
 		}
 
@@ -242,7 +254,10 @@ func (s *StreamBuffer) ClaimStale(ctx context.Context, minIdle time.Duration, ma
 
 		parsed, err := s.parseMessage(redis.XMessage{ID: id, Values: fields})
 		if err != nil {
-			s.logger.Error("claim parse error", "id", id, "error", err)
+			s.logger.Warn("claim parse error; acknowledging poison message", "id", id, "error", err)
+			if ackErr := s.Ack(ctx, []string{id}); ackErr != nil {
+				s.logger.Error("ack poison message failed", "id", id, "error", ackErr)
+			}
 			continue
 		}
 		messages = append(messages, parsed)

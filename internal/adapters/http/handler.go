@@ -56,7 +56,7 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 	// Check Redis
 	if h.mqttPing != nil {
 		if err := h.mqttPing(); err != nil {
-			checks["mqtt"] = "unhealthy: " + err.Error()
+			checks["mqtt"] = "unhealthy"
 			allHealthy = false
 		} else {
 			checks["mqtt"] = "healthy"
@@ -66,7 +66,7 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 	// Check Redis
 	if h.redisPing != nil {
 		if err := h.redisPing(); err != nil {
-			checks["redis"] = "unhealthy: " + err.Error()
+			checks["redis"] = "unhealthy"
 			allHealthy = false
 		} else {
 			checks["redis"] = "healthy"
@@ -76,7 +76,7 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 	// Check PostgreSQL
 	if h.postgresPing != nil {
 		if err := h.postgresPing(); err != nil {
-			checks["postgres"] = "unhealthy: " + err.Error()
+			checks["postgres"] = "unhealthy"
 			allHealthy = false
 		} else {
 			checks["postgres"] = "healthy"
@@ -113,16 +113,4 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, h.metrics.String())
 }
 
-// ServeHTTP implements http.Handler interface.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path {
-	case "/healthz":
-		h.Healthz(w, r)
-	case "/readyz":
-		h.Readyz(w, r)
-	case "/metrics":
-		h.Metrics(w, r)
-	default:
-		http.NotFound(w, r)
-	}
-}
+

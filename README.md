@@ -105,6 +105,8 @@ Other common variables:
 - `INGEST_MODE`
 - `INGEST_FLUSH_INTERVAL`
 
+Reserved or partially wired settings are documented in `docs/operation_appendix.md` and may be kept for future expansion: `MQTT_SESSION_EXPIRY`, `REDIS_READ_COUNT`, `POSTGRES_MAX_READ_CONNS`, `WORKER_RETRY_BACKOFF_INITIAL`, and `WORKER_RETRY_BACKOFF_MAX`.
+
 See `.env.example` for a full example.
 
 ## Device Profiles

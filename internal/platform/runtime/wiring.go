@@ -138,11 +138,9 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 		true,
 	)
 
-	// HTTP Server
-	w.HTTPServer = &http.Server{
-		Addr:    cfg.HTTP.ListenAddr,
-		Handler: w.HTTPHandler,
-	}
+	// HTTP routes and server
+	mux := httphandler.NewMux(w.HTTPHandler)
+	w.HTTPServer = httphandler.NewServer(cfg.HTTP.ListenAddr, mux)
 
 	return w, nil
 }
