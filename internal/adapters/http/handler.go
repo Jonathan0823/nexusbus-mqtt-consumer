@@ -113,16 +113,4 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, h.metrics.String())
 }
 
-// ServeHTTP implements http.Handler interface.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path {
-	case "/healthz":
-		h.Healthz(w, r)
-	case "/readyz":
-		h.Readyz(w, r)
-	case "/metrics":
-		h.Metrics(w, r)
-	default:
-		http.NotFound(w, r)
-	}
-}
+
