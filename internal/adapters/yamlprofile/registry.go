@@ -3,6 +3,7 @@ package yamlprofile
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 
@@ -157,8 +158,14 @@ func (r *Registry) decodeValue(raw int, mappingType string) (float64, error) {
 	case "", "uint16", "uint32", "float":
 		return float64(raw), nil
 	case "int16":
+		if raw < math.MinInt16 || raw > math.MaxInt16 {
+			return 0, fmt.Errorf("value %d out of range for int16", raw)
+		}
 		return float64(int16(raw)), nil
 	case "int32":
+		if raw < math.MinInt32 || raw > math.MaxInt32 {
+			return 0, fmt.Errorf("value %d out of range for int32", raw)
+		}
 		return float64(int32(raw)), nil
 	default:
 		return 0, fmt.Errorf("unsupported metric mapping type %q", mappingType)

@@ -1,6 +1,7 @@
 package yamlprofile
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -200,5 +201,53 @@ func TestTransformRejectsUnsupportedMetricMappingType(t *testing.T) {
 	}
 	if _, err := r.Transform(domain.RawTelemetryPayload{Values: []int{1}}, profile); err == nil {
 		t.Fatal("expected unsupported type error")
+	}
+}
+
+func TestDecodeValue_Int16RangeValidation(t *testing.T) {
+	t.Parallel()
+
+	r := &Registry{logger: logging.New("error")}
+
+	// Valid int16 min
+	if _, err := r.decodeValue(math.MinInt16, "int16"); err != nil {
+		t.Errorf("MinInt16 should be valid: %v", err)
+	}
+	// Valid int16 max
+	if _, err := r.decodeValue(math.MaxInt16, "int16"); err != nil {
+		t.Errorf("MaxInt16 should be valid: %v", err)
+	}
+
+	// Overflow below min
+	if _, err := r.decodeValue(math.MinInt16-1, "int16"); err == nil {
+		t.Error("expected error for value below int16 min")
+	}
+	// Overflow above max
+	if _, err := r.decodeValue(math.MaxInt16+1, "int16"); err == nil {
+		t.Error("expected error for value above int16 max")
+	}
+}
+
+func TestDecodeValue_Int32RangeValidation(t *testing.T) {
+	t.Parallel()
+
+	r := &Registry{logger: logging.New("error")}
+
+	// Valid int32 min
+	if _, err := r.decodeValue(math.MinInt32, "int32"); err != nil {
+		t.Errorf("MinInt32 should be valid: %v", err)
+	}
+	// Valid int32 max
+	if _, err := r.decodeValue(math.MaxInt32, "int32"); err != nil {
+		t.Errorf("MaxInt32 should be valid: %v", err)
+	}
+
+	// Overflow below min
+	if _, err := r.decodeValue(math.MinInt32-1, "int32"); err == nil {
+		t.Error("expected error for value below int32 min")
+	}
+	// Overflow above max
+	if _, err := r.decodeValue(math.MaxInt32+1, "int32"); err == nil {
+		t.Error("expected error for value above int32 max")
 	}
 }
