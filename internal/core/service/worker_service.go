@@ -82,7 +82,9 @@ func (s *WorkerService) ProcessBatch(ctx context.Context, maxCount int) error {
 		}
 
 		s.metrics.IncWorkerProcessed()
-		s.metrics.IncWorkerDuplicate() // track duplicates (len(rows) - inserted)
+		for i := 0; i < len(rows)-inserted; i++ {
+			s.metrics.IncWorkerDuplicate()
+		}
 		s.logger.Debug("batch processed", "total", len(rows), "inserted", inserted)
 	}
 
