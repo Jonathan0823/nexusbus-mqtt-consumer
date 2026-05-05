@@ -28,6 +28,7 @@ type Wiring struct {
 	IngestService    *service.IngestService
 	WorkerService    *service.WorkerService
 	CoalescingWorker *service.CoalescingWorker
+	TelemetryService *service.TelemetryServiceImpl
 
 	// Adapters
 	MQTTSubscriber *mqtt.Subscriber
@@ -115,10 +116,14 @@ func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) 
 		cfg.Ingest.FlushInterval,
 	)
 
+	// Telemetry Service
+	w.TelemetryService = service.NewTelemetryService(w.PostgresRepo)
+
 	// HTTP Handler
 	w.HTTPHandler = httphandler.NewHandler(
 		logger,
 		w.Metrics,
+		w.TelemetryService,
 		func() error {
 			if w.MQTTSubscriber == nil || !w.MQTTSubscriber.IsConnected() {
 				return fmt.Errorf("mqtt disconnected")
