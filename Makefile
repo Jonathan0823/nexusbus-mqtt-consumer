@@ -1,4 +1,4 @@
-.PHONY: migrate-up migrate-down migrate-create migrate-status
+.PHONY: migrate-install migrate-up migrate-down migrate-force migrate-create migrate-status
 
 # Database URL - set via environment or .env
 POSTGRES_DSN ?= $(shell grep -v '^#' .env 2>/dev/null | grep '^POSTGRES_DSN=' | cut -d'=' -f2-)
