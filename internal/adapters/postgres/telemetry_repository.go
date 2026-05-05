@@ -172,6 +172,43 @@ func (r *Repository) QueryRange(ctx context.Context, q domain.TelemetryRangeQuer
 	return results, rows.Err()
 }
 
+// QueryTelemetry returns telemetry for dashboard queries.
+func (r *Repository) QueryTelemetry(ctx context.Context, q domain.TelemetryQuery) ([]domain.EnrichedTelemetry, error) {
+	query := `
+		SELECT time, received_at, device_id, profile_id, register_type, address, count, source, metrics
+		FROM telemetry_enriched
+		WHERE device_id = $1 AND time >= $2 AND time <= $3
+		ORDER BY time DESC
+		LIMIT $4
+	`
+
+	rows, err := r.pool.Query(ctx, query, q.DeviceID, q.From, q.To, q.Limit)
+	if err != nil {
+		return nil, fmt.Errorf("query telemetry: %w", err)
+	}
+	defer rows.Close()
+
+	var results []domain.EnrichedTelemetry
+	for rows.Next() {
+		var row domain.EnrichedTelemetry
+		var metricsJSON []byte
+
+		err := rows.Scan(
+			&row.Time, &row.ReceivedAt, &row.DeviceID, &row.ProfileID,
+			&row.RegisterType, &row.Address, &row.Count, &row.Source,
+			&metricsJSON,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan row: %w", err)
+		}
+
+		json.Unmarshal(metricsJSON, &row.Metrics)
+		results = append(results, row)
+	}
+
+	return results, rows.Err()
+}
+
 // Ping checks database connectivity.
 func (r *Repository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)
