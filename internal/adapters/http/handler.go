@@ -178,6 +178,11 @@ func (h *Handler) GetTelemetry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate time range - max 3 months
+	// Validate that 'from' precedes 'to'
+	if !from.Before(to) {
+		h.sendError(w, http.StatusBadRequest, "'from' must be before 'to'")
+		return
+	}
 	if to.Sub(from) > domain.MaxTimeRange {
 		h.sendError(w, http.StatusBadRequest, "time range exceeds maximum of 3 months")
 		return
