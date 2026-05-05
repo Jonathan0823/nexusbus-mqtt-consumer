@@ -6,6 +6,12 @@ import (
 	"modbus-mqtt-consumer/internal/core/domain"
 )
 
+// TelemetryService defines the interface for telemetry query operations.
+type TelemetryService interface {
+	// QueryDeviceTelemetry returns telemetry data for a device within a time range.
+	QueryDeviceTelemetry(ctx context.Context, q domain.TelemetryQuery) ([]domain.EnrichedTelemetry, error)
+}
+
 // TelemetryRepository defines the interface for persisting telemetry to PostgreSQL.
 type TelemetryRepository interface {
 	// InsertBatchIdempotent inserts a batch of telemetry rows idempotently.
@@ -20,3 +26,4 @@ type TelemetryRepository interface {
 	// Ping checks database connectivity.
 	Ping(ctx context.Context) error
 }
+
