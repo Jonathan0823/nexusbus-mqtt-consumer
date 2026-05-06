@@ -25,6 +25,7 @@ flowchart LR
 - `/healthz`, `/readyz`, `/metrics`
 - Env-only runtime config
 - **Selectable ingest mode**: normal (immediate) or coalesce (latest-wins)
+- **Role-based deployment**: run as full stack or HTTP-only (for scaling reads) via `SERVICE_ROLE`
 
 ## Ingest Modes
 
@@ -68,6 +69,41 @@ INGEST_MODE=coalesce INGEST_FLUSH_INTERVAL=30s go run ./cmd/app
 
 ---
 
+## Deployment Modes
+
+The service supports role-based deployment via `SERVICE_ROLE` environment variable, allowing you to run a single binary in different configurations:
+
+### All (default)
+
+Full stack with all components: HTTP API, MQTT subscriber, Redis Stream buffer, PostgreSQL writer, and worker loop.
+
+```bash
+SERVICE_ROLE=all go run ./cmd/app
+```
+
+### HTTP-only
+
+Runs only the HTTP API and PostgreSQL connection. Useful for scaling read endpoints independently or running separate API replicas.
+
+```bash
+SERVICE_ROLE=http-only go run ./cmd/app
+```
+
+In this mode:
+- `/healthz`, `/readyz`, `/metrics` endpoints are available
+- `GET /telemetry` query endpoint works (reads from PostgreSQL)
+- MQTT, Redis, and worker components are not initialized
+
+### Ingest-only (placeholder)
+
+Future mode: MQTT subscriber + Redis Stream buffer only (no HTTP, no worker). Useful for dedicated ingest nodes.
+
+### Worker-only (placeholder)
+
+Future mode: Worker loop + Redis Stream buffer only (no HTTP, no MQTT). Useful for dedicated processing nodes.
+
+---
+
 ## Runtime Configuration
 
 Runtime settings come from environment variables only.
@@ -106,6 +142,11 @@ Other common variables:
 - `PROFILES_PATH`
 - `INGEST_MODE`
 - `INGEST_FLUSH_INTERVAL`
+- **`SERVICE_ROLE`** (optional, default `all`): Controls which components initialize. Options:
+  - `all` — Full stack (HTTP + MQTT + Redis + PostgreSQL + Worker)
+  - `http-only` — HTTP API + PostgreSQL only (for scaling read endpoints)
+  - `ingest-only` — (placeholder) MQTT + Redis only
+  - `worker-only` — (placeholder) Worker + Redis only
 
 Reserved or partially wired settings are documented in `docs/operation_appendix.md` and may be kept for future expansion: `MQTT_SESSION_EXPIRY`, `REDIS_READ_COUNT`, `POSTGRES_MAX_READ_CONNS`, `WORKER_RETRY_BACKOFF_INITIAL`, and `WORKER_RETRY_BACKOFF_MAX`.
 
