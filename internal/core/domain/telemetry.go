@@ -205,6 +205,22 @@ type TelemetryRangeQuery struct {
 	Limit    int
 }
 
+// TelemetryQuery represents a query for dashboard telemetry.
+type TelemetryQuery struct {
+	DeviceID   string
+	From       time.Time
+	To         time.Time
+	Limit      int
+	MetricKeys []string
+}
+
+// Query constants for telemetry GET route.
+const (
+	MaxTimeRange   = 90 * 24 * time.Hour // 3 months in hours
+	DefaultLimit   = 1000
+	MaxLimit       = 50000
+)
+
 // ValidationError represents a domain-level validation error.
 type ValidationError struct {
 	Field   string

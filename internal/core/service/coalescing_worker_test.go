@@ -65,6 +65,9 @@ func (f *fakeRepoCoalesceStream) GetLatest(context.Context, string) (*domain.Enr
 func (f *fakeRepoCoalesceStream) QueryRange(context.Context, domain.TelemetryRangeQuery) ([]domain.EnrichedTelemetry, error) {
 	return nil, nil
 }
+func (f *fakeRepoCoalesceStream) QueryTelemetry(context.Context, domain.TelemetryQuery) ([]domain.EnrichedTelemetry, error) {
+	return nil, nil
+}
 func (f *fakeRepoCoalesceStream) Ping(context.Context) error { return nil }
 
 type fakeProfilesCoalesceStream struct{}

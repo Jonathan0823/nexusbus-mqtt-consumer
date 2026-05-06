@@ -50,6 +50,9 @@ func (f *fakeRepo) GetLatest(context.Context, string) (*domain.EnrichedTelemetry
 func (f *fakeRepo) QueryRange(context.Context, domain.TelemetryRangeQuery) ([]domain.EnrichedTelemetry, error) {
 	return nil, nil
 }
+func (f *fakeRepo) QueryTelemetry(context.Context, domain.TelemetryQuery) ([]domain.EnrichedTelemetry, error) {
+	return nil, nil
+}
 func (f *fakeRepo) Ping(context.Context) error { return nil }
 
 type fakeProfiles struct{}

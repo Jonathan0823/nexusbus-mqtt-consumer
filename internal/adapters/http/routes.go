@@ -8,5 +8,9 @@ func NewMux(h *Handler) *http.ServeMux {
 	mux.HandleFunc("/healthz", h.Healthz)
 	mux.HandleFunc("/readyz", h.Readyz)
 	mux.HandleFunc("/metrics", h.Metrics)
+
+	// Telemetry GET routes - use prefix matching, handle method/device_id in handler
+	mux.HandleFunc("GET /api/v1/devices/", h.GetTelemetry)
+
 	return mux
 }
