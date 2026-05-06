@@ -19,23 +19,27 @@ import (
 )
 
 // Wiring holds all component dependencies.
+// Components are constructed conditionally based on role.
 type Wiring struct {
 	// Config and logger
 	Cfg    *config.Config
 	Logger *logging.Logger
 
-	// Core services
-	IngestService    *service.IngestService
+	// Role determines which components are constructed
+	Role config.ServiceRole
+
+	// Core services (may be nil depending on role)
+	IngestService      *service.IngestService
 	WorkerService    *service.WorkerService
 	CoalescingWorker *service.CoalescingWorker
 	TelemetryService *service.TelemetryServiceImpl
 
-	// Adapters
+	// Adapters (may be nil depending on role)
 	MQTTSubscriber *mqtt.Subscriber
-	RedisBuffer    *redis.StreamBuffer
-	PostgresRepo   *postgres.Repository
-	ProfileReg     *yamlprofile.Registry
-	HTTPHandler    *httphandler.Handler
+	RedisBuffer   *redis.StreamBuffer
+	PostgresRepo  *postgres.Repository
+	ProfileReg  *yamlprofile.Registry
+	HTTPHandler *httphandler.Handler
 
 	// Metrics
 	Metrics *metrics.Recorder
@@ -44,11 +48,24 @@ type Wiring struct {
 	HTTPServer *http.Server
 }
 
-// NewWiring creates and wires all dependencies.
+// NewWiring creates and wires all dependencies based on role.
 func NewWiring(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*Wiring, error) {
+	switch cfg.Service.Role {
+	case config.RoleHTTPOnly:
+		return buildHTTPOnly(ctx, cfg, logger)
+	case config.RoleAll, config.RoleIngestOnly, config.RoleWorkerOnly:
+		return buildAll(ctx, cfg, logger)
+	default:
+		return buildAll(ctx, cfg, logger)
+	}
+}
+
+// buildAll creates wiring for full stack (all components).
+func buildAll(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*Wiring, error) {
 	w := &Wiring{
 		Cfg:    cfg,
 		Logger: logger,
+		Role:   cfg.Service.Role,
 	}
 
 	// Metrics recorder
@@ -250,8 +267,64 @@ func (w *Wiring) StartCoalescingLoop(ctx context.Context) {
 func (w *Wiring) Close() error {
 	w.Logger.Info("closing wiring resources")
 
-	w.PostgresRepo.Close()
-	w.RedisBuffer.Close()
+	if w.PostgresRepo != nil {
+		w.PostgresRepo.Close()
+	}
+	if w.RedisBuffer != nil {
+		w.RedisBuffer.Close()
+	}
 
 	return nil
+}
+
+// buildHTTPOnly creates wiring for HTTP-only role (Postgres + profiles only).
+func buildHTTPOnly(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*Wiring, error) {
+	w := &Wiring{
+		Cfg:    cfg,
+		Logger: logger,
+		Role:   config.RoleHTTPOnly,
+	}
+
+	w.Metrics = metrics.NewRecorder()
+
+	// PostgreSQL Repository (required for telemetry queries)
+	postgresPool, err := postgres.NewPool(ctx, cfg.Postgres, logger)
+	if err != nil {
+		return nil, fmt.Errorf("postgres pool: %w", err)
+	}
+	w.PostgresRepo = postgres.NewRepository(postgresPool, logger)
+
+	// Profile Registry (required for device profile lookup)
+	profileReg, err := yamlprofile.NewRegistry(cfg.Profiles.Path, logger)
+	if err != nil {
+		postgresPool.Close()
+		return nil, fmt.Errorf("profile registry: %w", err)
+	}
+	w.ProfileReg = profileReg
+
+	// Telemetry Service for GET route
+	w.TelemetryService = service.NewTelemetryService(w.PostgresRepo)
+
+	// HTTP Handler (nil pings since no MQTT/Redis)
+	w.HTTPHandler = httphandler.NewHandler(
+		logger,
+		w.Metrics,
+		w.TelemetryService,
+		nil, // mqttPing - not available in http-only mode
+		nil, // redisPing - not available in http-only mode
+		func() error { return w.PostgresRepo.Ping(ctx) },
+		true,
+	)
+
+	mux := httphandler.NewMux(w.HTTPHandler)
+	w.HTTPServer = &http.Server{
+		Addr:              cfg.HTTP.ListenAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	return w, nil
 }
