@@ -22,11 +22,37 @@ type Config struct {
 	Ingest   IngestConfig
 }
 
+// ServiceRole defines the deployment mode.
+type ServiceRole string
+
+// Service role constants.
+const (
+	RoleAll       ServiceRole = "all"
+	RoleHTTPOnly  ServiceRole = "http-only"
+	RoleIngestOnly ServiceRole = "ingest-only"
+	RoleWorkerOnly ServiceRole = "worker-only"
+)
+
 // ServiceConfig holds general service settings.
 type ServiceConfig struct {
 	Name       string
 	InstanceID string
 	LogLevel   string
+	Role      ServiceRole
+}
+
+// setRole parses SERVICE_ROLE env var with fallback to RoleAll.
+func setRole() ServiceRole {
+	role := os.Getenv("SERVICE_ROLE")
+	if role == "" {
+		return RoleAll
+	}
+	switch ServiceRole(role) {
+	case RoleAll, RoleHTTPOnly, RoleIngestOnly, RoleWorkerOnly:
+		return ServiceRole(role)
+	default:
+		return RoleAll
+	}
 }
 
 // MQTTConfig holds MQTT connection settings.
@@ -102,6 +128,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	// SERVICE_ROLE must be loaded after env overrides
+	cfg.Service.Role = setRole()
+
 	// Validate
 	if err := Validate(cfg); err != nil {
 		return nil, err
@@ -117,6 +146,7 @@ func Default() *Config {
 			Name:       "telemetry-ingestion-service",
 			InstanceID: "default",
 			LogLevel:   "info",
+			Role:       RoleAll,
 		},
 		MQTT: MQTTConfig{
 			Broker:        "tcp://localhost:1883",
