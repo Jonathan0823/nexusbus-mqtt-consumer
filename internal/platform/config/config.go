@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -109,7 +110,8 @@ type WorkerConfig struct {
 
 // HTTPConfig holds HTTP server settings.
 type HTTPConfig struct {
-	ListenAddr string
+	ListenAddr      string
+	CORSAllowedOrigins []string // comma-separated list of allowed origins
 }
 
 // IngestConfig holds ingest behavior settings.
@@ -181,9 +183,10 @@ func Default() *Config {
 			RetryBackoffInitial: time.Second,
 			RetryBackoffMax:     60 * time.Second,
 		},
-		HTTP: HTTPConfig{
-			ListenAddr: ":8080",
-		},
+HTTP: HTTPConfig{
+		ListenAddr:        ":8080",
+		CORSAllowedOrigins: nil,
+	},
 		Ingest: IngestConfig{
 			Mode:          "normal",
 			FlushInterval: 30 * time.Second,
@@ -251,6 +254,13 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v := os.Getenv("HTTP_LISTEN_ADDR"); v != "" {
 		cfg.HTTP.ListenAddr = v
+	}
+	if v := os.Getenv("CORS_ALLOWED_ORIGINS"); v != "" {
+		origins := strings.Split(v, ",")
+		for i, o := range origins {
+			origins[i] = strings.TrimSpace(o)
+		}
+		cfg.HTTP.CORSAllowedOrigins = origins
 	}
 
 	if v := os.Getenv("MQTT_URL"); v != "" {
