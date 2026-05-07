@@ -8,6 +8,11 @@ import (
 
 const chartTargetPoints = 500
 
+// ChartTargetPoints returns the default target points per series for LTTB downsampling.
+func ChartTargetPoints() int {
+	return chartTargetPoints
+}
+
 // downsampleLTTB reduces a time-series to the requested threshold while preserving shape.
 func downsampleLTTB(points []domain.ChartPoint, threshold int) []domain.ChartPoint {
 	n := len(points)
