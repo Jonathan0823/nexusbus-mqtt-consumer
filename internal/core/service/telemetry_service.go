@@ -26,19 +26,26 @@ func (s *TelemetryServiceImpl) QueryDeviceTelemetry(ctx context.Context, q domai
 }
 
 // QueryDeviceChart returns chart series for a device within a time range.
+// Uses streaming to handle large time ranges efficiently.
+// limit parameter is now the LTTB downsampling target, not database row limit.
 func (s *TelemetryServiceImpl) QueryDeviceChart(ctx context.Context, q domain.TelemetryQuery) ([]domain.ChartSeries, error) {
-	results, err := s.repo.QueryTelemetry(ctx, q)
-	if err != nil {
-		return nil, err
+	// Use streaming repository to avoid loading all rows into memory.
+	// Each row gets grouped into series during streaming.
+
+	// Pre-allocate maps for grouping per metric.
+	// Start with estimates based on limit for memory efficiency.
+	targetPoints := q.Limit
+	if targetPoints <= 0 {
+		targetPoints = ChartTargetPoints()
 	}
 
-	// Group points by metric key
 	seriesMap := make(map[string][]domain.ChartPoint)
-	for _, r := range results {
-		if r.Metrics == nil {
-			continue
+
+	err := s.repo.StreamTelemetry(ctx, q, func(row domain.EnrichedTelemetry) error {
+		if row.Metrics == nil {
+			return nil
 		}
-		for key, val := range r.Metrics {
+		for key, val := range row.Metrics {
 			// Filter by requested metrics if specified
 			if len(q.MetricKeys) > 0 {
 				found := false
@@ -67,20 +74,24 @@ func (s *TelemetryServiceImpl) QueryDeviceChart(ctx context.Context, q domain.Te
 				continue
 			}
 			seriesMap[key] = append(seriesMap[key], domain.ChartPoint{
-				X: r.Time.UnixMilli(),
+				X: row.Time.UnixMilli(),
 				Y: y,
 			})
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	// Build series slice (preserves order if metricKeys specified)
+	// Sort and downsample each series.
 	var series []domain.ChartSeries
 	if len(q.MetricKeys) > 0 {
 		for _, key := range q.MetricKeys {
 			if pts, ok := seriesMap[key]; ok {
 				// Sort points ascending by timestamp for correct chart render order.
 				sort.Slice(pts, func(i, j int) bool { return pts[i].X < pts[j].X })
-				pts = downsampleLTTB(pts, chartTargetPoints)
+				pts = downsampleLTTB(pts, targetPoints)
 				series = append(series, domain.ChartSeries{
 					Metric: key,
 					Points: pts,
@@ -91,7 +102,7 @@ func (s *TelemetryServiceImpl) QueryDeviceChart(ctx context.Context, q domain.Te
 		for key, pts := range seriesMap {
 			// Sort points ascending by timestamp for correct chart render order.
 			sort.Slice(pts, func(i, j int) bool { return pts[i].X < pts[j].X })
-			pts = downsampleLTTB(pts, chartTargetPoints)
+			pts = downsampleLTTB(pts, targetPoints)
 			series = append(series, domain.ChartSeries{
 				Metric: key,
 				Points: pts,
