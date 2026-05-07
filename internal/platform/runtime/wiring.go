@@ -153,10 +153,10 @@ func buildAll(ctx context.Context, cfg *config.Config, logger *logging.Logger) (
 	)
 
 	// HTTP routes and server
-	mux := httphandler.NewMux(w.HTTPHandler)
+	engine := httphandler.NewEngine(w.HTTPHandler)
 	w.HTTPServer = &http.Server{
 		Addr:              cfg.HTTP.ListenAddr,
-		Handler:           mux,
+		Handler:           engine,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -316,10 +316,10 @@ func buildHTTPOnly(ctx context.Context, cfg *config.Config, logger *logging.Logg
 		true,
 	)
 
-	mux := httphandler.NewMux(w.HTTPHandler)
+	engine := httphandler.NewEngine(w.HTTPHandler)
 	w.HTTPServer = &http.Server{
 		Addr:              cfg.HTTP.ListenAddr,
-		Handler:           mux,
+		Handler:           engine,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,

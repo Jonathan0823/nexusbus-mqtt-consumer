@@ -1,12 +1,11 @@
 package httpadapter
 
 import (
-	"encoding/json"
-	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"modbus-mqtt-consumer/internal/core/domain"
 	"modbus-mqtt-consumer/internal/core/ports"
@@ -17,12 +16,12 @@ import (
 // Handler holds HTTP handlers and dependencies.
 type Handler struct {
 	logger           *logging.Logger
-	metrics          *metrics.Recorder
+	metrics         *metrics.Recorder
 	telemetryService ports.TelemetryService
-	mqttPing         func() error
-	redisPing        func() error
-	postgresPing     func() error
-	profilesLoaded   bool
+	mqttPing        func() error
+	redisPing       func() error
+	postgresPing    func() error
+	profilesLoaded bool
 }
 
 // NewHandler creates a new HTTP handler.
@@ -41,27 +40,24 @@ func NewHandler(
 		telemetryService: telemetryService,
 		mqttPing:         mqttPing,
 		redisPing:        redisPing,
-		postgresPing:     postgresPing,
-		profilesLoaded:   profilesLoaded,
+		postgresPing:    postgresPing,
+		profilesLoaded:  profilesLoaded,
 	}
 }
 
 // Healthz returns OK if the service is running.
-func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+func (h *Handler) Healthz(c *gin.Context) {
+	c.JSON(200, map[string]string{
 		"status": "ok",
 	})
 }
 
 // Readyz returns OK only if critical dependencies are reachable.
-func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
+func (h *Handler) Readyz(c *gin.Context) {
 	checks := make(map[string]string)
 	allHealthy := true
 
-	// Check Redis
+	// Check MQTT
 	if h.mqttPing != nil {
 		if err := h.mqttPing(); err != nil {
 			checks["mqtt"] = "unhealthy"
@@ -100,10 +96,10 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := "ok"
-	statusCode := http.StatusOK
+	statusCode := 200
 	if !allHealthy {
 		status = "not ready"
-		statusCode = http.StatusServiceUnavailable
+		statusCode = 503
 	}
 
 	response := map[string]interface{}{
@@ -111,14 +107,13 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 		"checks": checks,
 	}
 
-	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(response)
+	c.JSON(statusCode, response)
 }
 
 // Metrics returns Prometheus-formatted metrics.
-func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	fmt.Fprintln(w, h.metrics.String())
+func (h *Handler) Metrics(c *gin.Context) {
+	c.Header("Content-Type", "text/plain; version=0.0.4")
+	c.String(200, h.metrics.String())
 }
 
 // TelemetryResponse represents the API response for telemetry data.
@@ -136,27 +131,23 @@ type TelemetryResponse struct {
 }
 
 // GetTelemetry returns telemetry data for a device.
-func (h *Handler) GetTelemetry(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	// Extract device_id from path - format is /api/v1/devices/{device_id}/telemetry
-	deviceID := extractDeviceID(r.URL.Path)
+func (h *Handler) GetTelemetry(c *gin.Context) {
+	// Extract device_id from path parameter
+	deviceID := c.Param("device_id")
 	if deviceID == "" {
-		h.sendError(w, http.StatusBadRequest, "device_id is required")
+		h.sendError(c, 400, "device_id is required")
 		return
 	}
 
 	// Parse query parameters
-	query := r.URL.Query()
-
 	// Parse 'from' - default to 24 hours ago
-	fromStr := query.Get("from")
+	fromStr := c.Query("from")
 	var from time.Time
 	if fromStr != "" {
 		var err error
 		from, err = time.Parse(time.RFC3339, fromStr)
 		if err != nil {
-			h.sendError(w, http.StatusBadRequest, "invalid 'from' timestamp format")
+			h.sendError(c, 400, "invalid 'from' timestamp format")
 			return
 		}
 	} else {
@@ -164,13 +155,13 @@ func (h *Handler) GetTelemetry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse 'to' - default to now
-	toStr := query.Get("to")
+	toStr := c.Query("to")
 	var to time.Time
 	if toStr != "" {
 		var err error
 		to, err = time.Parse(time.RFC3339, toStr)
 		if err != nil {
-			h.sendError(w, http.StatusBadRequest, "invalid 'to' timestamp format")
+			h.sendError(c, 400, "invalid 'to' timestamp format")
 			return
 		}
 	} else {
@@ -180,32 +171,32 @@ func (h *Handler) GetTelemetry(w http.ResponseWriter, r *http.Request) {
 	// Validate time range - max 3 months
 	// Validate that 'from' precedes 'to'
 	if !from.Before(to) {
-		h.sendError(w, http.StatusBadRequest, "'from' must be before 'to'")
+		h.sendError(c, 400, "'from' must be before 'to'")
 		return
 	}
 	if to.Sub(from) > domain.MaxTimeRange {
-		h.sendError(w, http.StatusBadRequest, "time range exceeds maximum of 3 months")
+		h.sendError(c, 400, "time range exceeds maximum of 3 months")
 		return
 	}
 
 	// Parse limit - default 1000, max 50000
 	limit := domain.DefaultLimit
-	if limitStr := query.Get("limit"); limitStr != "" {
+	if limitStr := c.Query("limit"); limitStr != "" {
 		var err error
 		limit, err = strconv.Atoi(limitStr)
 		if err != nil || limit <= 0 {
-			h.sendError(w, http.StatusBadRequest, "invalid limit value")
+			h.sendError(c, 400, "invalid limit value")
 			return
 		}
 		if limit > domain.MaxLimit {
-			h.sendError(w, http.StatusBadRequest, fmt.Sprintf("limit exceeds maximum of %d", domain.MaxLimit))
+			h.sendError(c, 400, "limit exceeds maximum of 50000")
 			return
 		}
 	}
 
 	// Parse metrics - optional comma-separated list
 	var metricKeys []string
-	if metricsStr := query.Get("metrics"); metricsStr != "" {
+	if metricsStr := c.Query("metrics"); metricsStr != "" {
 		metricKeys = strings.Split(metricsStr, ",")
 		for i, key := range metricKeys {
 			metricKeys[i] = strings.TrimSpace(key)
@@ -215,17 +206,17 @@ func (h *Handler) GetTelemetry(w http.ResponseWriter, r *http.Request) {
 	// Build query
 	telemetryQuery := domain.TelemetryQuery{
 		DeviceID:   deviceID,
-		From:       from,
-		To:         to,
-		Limit:      limit,
+		From:      from,
+		To:        to,
+		Limit:     limit,
 		MetricKeys: metricKeys,
 	}
 
 	// Call service
-	results, err := h.telemetryService.QueryDeviceTelemetry(r.Context(), telemetryQuery)
+	results, err := h.telemetryService.QueryDeviceTelemetry(c.Request.Context(), telemetryQuery)
 	if err != nil {
 		h.logger.Error("query telemetry failed", "error", err)
-		h.sendError(w, http.StatusInternalServerError, "failed to query telemetry")
+		h.sendError(c, 500, "failed to query telemetry")
 		return
 	}
 
@@ -239,9 +230,9 @@ func (h *Handler) GetTelemetry(w http.ResponseWriter, r *http.Request) {
 			ProfileID:    r.ProfileID,
 			RegisterType: r.RegisterType,
 			Address:      r.Address,
-			Count:        r.Count,
-			Source:       r.Source,
-			Metrics:      r.Metrics,
+			Count:       r.Count,
+			Source:      r.Source,
+			Metrics:     r.Metrics,
 		})
 	}
 
@@ -249,10 +240,10 @@ func (h *Handler) GetTelemetry(w http.ResponseWriter, r *http.Request) {
 		"data": responseData,
 		"meta": map[string]interface{}{
 			"device_id": deviceID,
-			"from":      from.Format(time.RFC3339),
-			"to":        to.Format(time.RFC3339),
-			"limit":     limit,
-			"count":     len(results),
+			"from":     from.Format(time.RFC3339),
+			"to":       to.Format(time.RFC3339),
+			"limit":    limit,
+			"count":   len(results),
 		},
 	}
 
@@ -260,27 +251,12 @@ func (h *Handler) GetTelemetry(w http.ResponseWriter, r *http.Request) {
 		response["meta"].(map[string]interface{})["metrics"] = metricKeys
 	}
 
-	json.NewEncoder(w).Encode(response)
-}
-
-// extractDeviceID extracts device_id from URL path.
-// Path format: /api/v1/devices/{device_id}/telemetry
-func extractDeviceID(path string) string {
-	parts := strings.Split(path, "/")
-	for i, part := range parts {
-		if part == "devices" && i+1 < len(parts) {
-			return parts[i+1]
-		}
-	}
-	return ""
+	c.JSON(200, response)
 }
 
 // sendError sends a JSON error response.
-func (h *Handler) sendError(w http.ResponseWriter, status int, message string) {
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{
+func (h *Handler) sendError(c *gin.Context, status int, message string) {
+	c.JSON(status, map[string]string{
 		"error": message,
 	})
 }
-
-
