@@ -257,13 +257,13 @@ func TestGetChart_ValidRequest(t *testing.T) {
 			{
 				Metric: "voltage",
 				Points: []domain.ChartPoint{
-					{X: time.Now().UTC(), Y: 227.5},
+					{X: time.Now().UTC().UnixMilli(), Y: 227.5},
 				},
 			},
 			{
 				Metric: "current",
 				Points: []domain.ChartPoint{
-					{X: time.Now().UTC(), Y: 0.625},
+					{X: time.Now().UTC().UnixMilli(), Y: 0.625},
 				},
 			},
 		},
@@ -305,6 +305,13 @@ func TestGetChart_ValidRequest(t *testing.T) {
 	voltagePoints, ok := voltageSeries["points"].([]interface{})
 	if !ok || len(voltagePoints) != 1 {
 		t.Fatalf("expected 1 voltage point, got %v", voltagePoints)
+	}
+	point, ok := voltagePoints[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected point to be a map, got %T", voltagePoints[0])
+	}
+	if _, ok := point["x"].(float64); !ok {
+		t.Fatalf("expected x to be numeric unix timestamp, got %T", point["x"])
 	}
 
 	// Check current series
@@ -362,7 +369,7 @@ func TestGetChart_FilterByMetrics(t *testing.T) {
 			{
 				Metric: "voltage",
 				Points: []domain.ChartPoint{
-					{X: time.Now().UTC(), Y: 227.5},
+					{X: time.Now().UTC().UnixMilli(), Y: 227.5},
 				},
 			},
 		},

@@ -222,9 +222,10 @@ const (
 )
 
 // ChartPoint represents a single data point for charting.
+// X is Unix milliseconds for chart compatibility.
 type ChartPoint struct {
-	X time.Time `json:"x"`
-	Y float64  `json:"y"`
+	X int64   `json:"x"`
+	Y float64 `json:"y"`
 }
 
 // ChartSeries represents a single metric series for charting.

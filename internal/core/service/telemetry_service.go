@@ -66,7 +66,7 @@ func (s *TelemetryServiceImpl) QueryDeviceChart(ctx context.Context, q domain.Te
 				continue
 			}
 			seriesMap[key] = append(seriesMap[key], domain.ChartPoint{
-				X: r.Time,
+				X: r.Time.UnixMilli(),
 				Y: y,
 			})
 		}
