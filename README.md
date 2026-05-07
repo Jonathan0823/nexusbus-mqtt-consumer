@@ -51,6 +51,7 @@ All MQTT messages go to Redis Stream (durable), but the worker reads them in bat
 - Flush interval: default 30s (configurable)
 
 **Reliability guarantees:**
+
 - Shutdown flush uses a fresh timeout context to ensure the final buffered snapshot is persisted even after signal cancellation
 - Idle periods still flush pending work (including recovered stale entries) every tick
 - Thread-safe buffer mutations prevent data races between concurrent producers and flush cycles
@@ -90,6 +91,7 @@ SERVICE_ROLE=http-only go run ./cmd/app
 ```
 
 In this mode:
+
 - `/healthz`, `/readyz`, `/metrics` endpoints are available
 - `GET /telemetry` query endpoint works (reads from PostgreSQL)
 - MQTT, Redis, and worker components are not initialized
@@ -109,11 +111,13 @@ Future mode: Worker loop + Redis Stream buffer only (no HTTP, no MQTT). Useful f
 Runtime settings come from environment variables only.
 
 Required basics:
+
 - `POSTGRES_DSN`
 - `REDIS_URL`
 - `MQTT_URL`
 
 Other common variables:
+
 - `SERVICE_NAME`
 - `INSTANCE_ID`
 - `LOG_LEVEL`
@@ -143,7 +147,6 @@ Other common variables:
 - `PROFILES_PATH`
 - `INGEST_MODE`
 - `INGEST_FLUSH_INTERVAL`
-- `CORS_ALLOWED_ORIGINS` (optional): Comma-separated list of allowed origins. Empty = CORS disabled.
 
 ### CORS Configuration
 
@@ -163,10 +166,11 @@ For development, use localhost origins. The service uses strict allowlist — on
 ### Service Role (`SERVICE_ROLE`)
 
 **`SERVICE_ROLE`** (optional, default `all`): Controls which components initialize. Options:
-  - `all` — Full stack (HTTP + MQTT + Redis + PostgreSQL + Worker)
-  - `http-only` — HTTP API + PostgreSQL only (for scaling read endpoints)
-  - `ingest-only` — (placeholder) MQTT + Redis only
-  - `worker-only` — (placeholder) Worker + Redis only
+
+- `all` — Full stack (HTTP + MQTT + Redis + PostgreSQL + Worker)
+- `http-only` — HTTP API + PostgreSQL only (for scaling read endpoints)
+- `ingest-only` — (placeholder) MQTT + Redis only
+- `worker-only` — (placeholder) Worker + Redis only
 
 Reserved or partially wired settings are documented in `docs/operation_appendix.md` and may be kept for future expansion: `MQTT_SESSION_EXPIRY`, `REDIS_READ_COUNT`, `POSTGRES_MAX_READ_CONNS`, `WORKER_RETRY_BACKOFF_INITIAL`, and `WORKER_RETRY_BACKOFF_MAX`.
 
