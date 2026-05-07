@@ -14,8 +14,9 @@ func NewEngine(h *Handler) *gin.Engine {
 	engine.GET("/readyz", h.Readyz)
 	engine.GET("/metrics", h.Metrics)
 
-	// Telemetry GET route
+	// Telemetry GET routes
 	engine.GET("/api/v1/devices/:device_id/telemetry", h.GetTelemetry)
+	engine.GET("/api/v1/devices/:device_id/chart", h.GetChart)
 
 	return engine
 }

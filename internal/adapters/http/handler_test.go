@@ -20,11 +20,16 @@ import (
 // mockTelemetryService is a mock implementation of TelemetryService for testing.
 type mockTelemetryService struct {
 	telemetry []domain.EnrichedTelemetry
-	err       error
+	chart    []domain.ChartSeries
+	err      error
 }
 
 func (m *mockTelemetryService) QueryDeviceTelemetry(ctx context.Context, q domain.TelemetryQuery) ([]domain.EnrichedTelemetry, error) {
 	return m.telemetry, m.err
+}
+
+func (m *mockTelemetryService) QueryDeviceChart(ctx context.Context, q domain.TelemetryQuery) ([]domain.ChartSeries, error) {
+	return m.chart, m.err
 }
 
 // setupTestContext creates a Gin test context with the given path params.
@@ -241,5 +246,159 @@ func TestGetTelemetry_LimitExceedsMax(t *testing.T) {
 
 	if !strings.Contains(response["error"], "exceeds maximum") {
 		t.Fatalf("expected limit error, got %v", response["error"])
+	}
+}
+
+func TestGetChart_ValidRequest(t *testing.T) {
+	t.Parallel()
+
+	mockSvc := &mockTelemetryService{
+		chart: []domain.ChartSeries{
+			{
+				Metric: "voltage",
+				Points: []domain.ChartPoint{
+					{X: time.Now().UTC(), Y: 227.5},
+				},
+			},
+			{
+				Metric: "current",
+				Points: []domain.ChartPoint{
+					{X: time.Now().UTC(), Y: 0.625},
+				},
+			},
+		},
+	}
+
+	h := NewHandler(
+		logging.New("error"),
+		metrics.NewRecorder(),
+		mockSvc,
+		nil,
+		nil,
+		nil,
+		true,
+	)
+
+	c, w := setupTestContext("office-eng", "/api/v1/devices/office-eng/chart?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z&limit=100")
+	h.GetChart(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	// Check response structure
+	series, ok := response["data"].([]interface{})
+	if !ok || len(series) != 2 {
+		t.Fatalf("expected 2 series, got %v", response["data"])
+	}
+
+	// Check voltage series
+	voltageSeries, ok := series[0].(map[string]any)
+	if !ok || voltageSeries["metric"] != "voltage" {
+		t.Fatalf("expected voltage series first, got %v", series[0])
+	}
+	voltagePoints, ok := voltageSeries["points"].([]interface{})
+	if !ok || len(voltagePoints) != 1 {
+		t.Fatalf("expected 1 voltage point, got %v", voltagePoints)
+	}
+
+	// Check current series
+	currentSeries, ok := series[1].(map[string]any)
+	if !ok || currentSeries["metric"] != "current" {
+		t.Fatalf("expected current series second, got %v", series[1])
+	}
+
+	// Check meta
+	meta, ok := response["meta"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected meta in response")
+	}
+
+	if meta["device_id"] != "office-eng" {
+		t.Fatalf("expected device_id office-eng, got %v", meta["device_id"])
+	}
+}
+
+func TestGetChart_MissingDeviceID(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(
+		logging.New("error"),
+		metrics.NewRecorder(),
+		nil,
+		nil,
+		nil,
+		nil,
+		true,
+	)
+
+	c, w := setupTestContext("", "/api/v1/devices//chart")
+	h.GetChart(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+
+	var response map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	if response["error"] != "device_id is required" {
+		t.Fatalf("expected 'device_id is required', got %v", response["error"])
+	}
+}
+
+func TestGetChart_FilterByMetrics(t *testing.T) {
+	t.Parallel()
+
+	mockSvc := &mockTelemetryService{
+		chart: []domain.ChartSeries{
+			{
+				Metric: "voltage",
+				Points: []domain.ChartPoint{
+					{X: time.Now().UTC(), Y: 227.5},
+				},
+			},
+		},
+	}
+
+	h := NewHandler(
+		logging.New("error"),
+		metrics.NewRecorder(),
+		mockSvc,
+		nil,
+		nil,
+		nil,
+		true,
+	)
+
+	// Request only voltage metric
+	c, w := setupTestContext("office-eng", "/api/v1/devices/office-eng/chart?metrics=voltage")
+	h.GetChart(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	// Should only have voltage series
+	series, ok := response["data"].([]interface{})
+	if !ok || len(series) != 1 {
+		t.Fatalf("expected 1 series, got %v", response["data"])
+	}
+
+	voltageSeries, ok := series[0].(map[string]any)
+	if !ok || voltageSeries["metric"] != "voltage" {
+		t.Fatalf("expected only voltage series, got %v", series[0])
 	}
 }

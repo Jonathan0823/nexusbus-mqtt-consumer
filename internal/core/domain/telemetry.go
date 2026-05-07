@@ -221,6 +221,18 @@ const (
 	MaxLimit       = 50000
 )
 
+// ChartPoint represents a single data point for charting.
+type ChartPoint struct {
+	X time.Time `json:"x"`
+	Y float64  `json:"y"`
+}
+
+// ChartSeries represents a single metric series for charting.
+type ChartSeries struct {
+	Metric string      `json:"metric"`
+	Points []ChartPoint `json:"points"`
+}
+
 // ValidationError represents a domain-level validation error.
 type ValidationError struct {
 	Field   string

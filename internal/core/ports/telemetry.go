@@ -10,6 +10,8 @@ import (
 type TelemetryService interface {
 	// QueryDeviceTelemetry returns telemetry data for a device within a time range.
 	QueryDeviceTelemetry(ctx context.Context, q domain.TelemetryQuery) ([]domain.EnrichedTelemetry, error)
+	// QueryDeviceChart returns chart series for a device within a time range.
+	QueryDeviceChart(ctx context.Context, q domain.TelemetryQuery) ([]domain.ChartSeries, error)
 }
 
 // TelemetryRepository defines the interface for persisting telemetry to PostgreSQL.

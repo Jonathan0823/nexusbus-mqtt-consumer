@@ -130,6 +130,13 @@ type TelemetryResponse struct {
 	Metrics       interface{} `json:"metrics"`
 }
 
+// ChartResponse represents the API response for chart data.
+// Uses domain.ChartSeries directly.
+type ChartResponse struct {
+	Series []domain.ChartSeries `json:"data"`
+	Meta   interface{}          `json:"meta"`
+}
+
 // GetTelemetry returns telemetry data for a device.
 func (h *Handler) GetTelemetry(c *gin.Context) {
 	// Extract device_id from path parameter
@@ -249,6 +256,116 @@ func (h *Handler) GetTelemetry(c *gin.Context) {
 
 	if len(metricKeys) > 0 {
 		response["meta"].(map[string]interface{})["metrics"] = metricKeys
+	}
+
+	c.JSON(200, response)
+}
+
+// GetChart returns chart-friendly data for a device.
+func (h *Handler) GetChart(c *gin.Context) {
+	// Extract device_id from path parameter
+	deviceID := c.Param("device_id")
+	if deviceID == "" {
+		h.sendError(c, 400, "device_id is required")
+		return
+	}
+
+	// Parse query parameters
+	// Parse 'from' - default to 24 hours ago
+	fromStr := c.Query("from")
+	var from time.Time
+	if fromStr != "" {
+		var err error
+		from, err = time.Parse(time.RFC3339, fromStr)
+		if err != nil {
+			h.sendError(c, 400, "invalid 'from' timestamp format")
+			return
+		}
+	} else {
+		from = time.Now().UTC().Add(-24 * time.Hour)
+	}
+
+	// Parse 'to' - default to now
+	toStr := c.Query("to")
+	var to time.Time
+	if toStr != "" {
+		var err error
+		to, err = time.Parse(time.RFC3339, toStr)
+		if err != nil {
+			h.sendError(c, 400, "invalid 'to' timestamp format")
+			return
+		}
+	} else {
+		to = time.Now().UTC()
+	}
+
+	// Validate time range - max 3 months
+	// Validate that 'from' precedes 'to'
+	if !from.Before(to) {
+		h.sendError(c, 400, "'from' must be before 'to'")
+		return
+	}
+	if to.Sub(from) > domain.MaxTimeRange {
+		h.sendError(c, 400, "time range exceeds maximum of 3 months")
+		return
+	}
+
+	// Parse limit - default 1000, max 50000
+	limit := domain.DefaultLimit
+	if limitStr := c.Query("limit"); limitStr != "" {
+		var err error
+		limit, err = strconv.Atoi(limitStr)
+		if err != nil || limit <= 0 {
+			h.sendError(c, 400, "invalid limit value")
+			return
+		}
+		if limit > domain.MaxLimit {
+			h.sendError(c, 400, "limit exceeds maximum of 50000")
+			return
+		}
+	}
+
+	// Parse metrics - optional comma-separated list
+	var metricKeys []string
+	if metricsStr := c.Query("metrics"); metricsStr != "" {
+		metricKeys = strings.Split(metricsStr, ",")
+		for i, key := range metricKeys {
+			metricKeys[i] = strings.TrimSpace(key)
+		}
+	}
+
+	// Build query
+	telemetryQuery := domain.TelemetryQuery{
+		DeviceID:   deviceID,
+		From:      from,
+		To:        to,
+		Limit:     limit,
+		MetricKeys: metricKeys,
+	}
+
+	// Call service
+	series, err := h.telemetryService.QueryDeviceChart(c.Request.Context(), telemetryQuery)
+	if err != nil {
+		h.logger.Error("query chart failed", "error", err)
+		h.sendError(c, 500, "failed to query chart")
+		return
+	}
+
+	// Build meta (same as GetTelemetry)
+	meta := map[string]interface{}{
+		"device_id": deviceID,
+		"from":      from.Format(time.RFC3339),
+		"to":        to.Format(time.RFC3339),
+		"limit":     limit,
+	}
+
+	if len(metricKeys) > 0 {
+		meta["metrics"] = metricKeys
+	}
+
+	response := ChartResponse{
+		Series: series,
+		Meta:   meta,
 	}
 
 	c.JSON(200, response)
