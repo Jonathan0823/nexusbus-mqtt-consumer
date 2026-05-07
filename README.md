@@ -118,6 +118,7 @@ Other common variables:
 - `INSTANCE_ID`
 - `LOG_LEVEL`
 - `HTTP_LISTEN_ADDR`
+- `CORS_ALLOWED_ORIGINS`
 - `MQTT_CLIENT_ID`
 - `MQTT_TOPIC`
 - `MQTT_QOS`
@@ -142,7 +143,26 @@ Other common variables:
 - `PROFILES_PATH`
 - `INGEST_MODE`
 - `INGEST_FLUSH_INTERVAL`
-- **`SERVICE_ROLE`** (optional, default `all`): Controls which components initialize. Options:
+- `CORS_ALLOWED_ORIGINS` (optional): Comma-separated list of allowed origins. Empty = CORS disabled.
+
+### CORS Configuration
+
+CORS is disabled by default. To enable, set `CORS_ALLOWED_ORIGINS` to a comma-separated list of origins:
+
+```bash
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+```
+
+For development, use localhost origins. The service uses strict allowlist — only explicitly listed origins are allowed.
+
+- `OPTIONS` preflight requests are handled
+- `GET` and `OPTIONS` methods are allowed
+- No credentials are sent (`AllowCredentials = false`)
+- For same-origin requests (no `Origin` header), CORS headers are not added
+
+### Service Role (`SERVICE_ROLE`)
+
+**`SERVICE_ROLE`** (optional, default `all`): Controls which components initialize. Options:
   - `all` — Full stack (HTTP + MQTT + Redis + PostgreSQL + Worker)
   - `http-only` — HTTP API + PostgreSQL only (for scaling read endpoints)
   - `ingest-only` — (placeholder) MQTT + Redis only
