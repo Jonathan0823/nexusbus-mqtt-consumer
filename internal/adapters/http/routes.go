@@ -5,9 +5,14 @@ import (
 )
 
 // NewEngine registers HTTP routes and returns a Gin engine.
-func NewEngine(h *Handler) *gin.Engine {
+func NewEngine(h *Handler, allowedOrigins []string) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
+
+	// Apply CORS middleware if allowed origins configured
+	if len(allowedOrigins) > 0 {
+		engine.Use(corsMiddleware(allowedOrigins))
+	}
 
 	// Health and metrics routes
 	engine.GET("/healthz", h.Healthz)

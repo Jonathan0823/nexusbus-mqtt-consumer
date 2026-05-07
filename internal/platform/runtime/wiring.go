@@ -153,7 +153,7 @@ func buildAll(ctx context.Context, cfg *config.Config, logger *logging.Logger) (
 	)
 
 	// HTTP routes and server
-	engine := httphandler.NewEngine(w.HTTPHandler)
+	engine := httphandler.NewEngine(w.HTTPHandler, cfg.HTTP.CORSAllowedOrigins)
 	w.HTTPServer = &http.Server{
 		Addr:              cfg.HTTP.ListenAddr,
 		Handler:           engine,
@@ -316,7 +316,7 @@ func buildHTTPOnly(ctx context.Context, cfg *config.Config, logger *logging.Logg
 		true,
 	)
 
-	engine := httphandler.NewEngine(w.HTTPHandler)
+	engine := httphandler.NewEngine(w.HTTPHandler, cfg.HTTP.CORSAllowedOrigins)
 	w.HTTPServer = &http.Server{
 		Addr:              cfg.HTTP.ListenAddr,
 		Handler:           engine,
