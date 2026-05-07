@@ -279,7 +279,7 @@ func TestGetChart_ValidRequest(t *testing.T) {
 		true,
 	)
 
-	c, w := setupTestContext("office-eng", "/api/v1/devices/office-eng/chart?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z&limit=100")
+	c, w := setupTestContext("office-eng", "/api/v1/devices/office-eng/chart?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z&target_points=100")
 	h.GetChart(c)
 
 	if w.Code != http.StatusOK {
