@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"modbus-mqtt-consumer/internal/core/domain"
 	"modbus-mqtt-consumer/internal/platform/logging"
 	"modbus-mqtt-consumer/internal/platform/metrics"
@@ -25,6 +27,20 @@ func (m *mockTelemetryService) QueryDeviceTelemetry(ctx context.Context, q domai
 	return m.telemetry, m.err
 }
 
+// setupTestContext creates a Gin test context with the given path params.
+func setupTestContext(deviceID, queryPath string) (c *gin.Context, w *httptest.ResponseRecorder) {
+	gin.SetMode(gin.TestMode)
+	w = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, queryPath, nil)
+	if deviceID != "" {
+		c.Params = gin.Params{
+			{Key: "device_id", Value: deviceID},
+		}
+	}
+	return c, w
+}
+
 func TestReadyzDoesNotExposeBackendErrors(t *testing.T) {
 	t.Parallel()
 
@@ -38,16 +54,15 @@ func TestReadyzDoesNotExposeBackendErrors(t *testing.T) {
 		false,
 	)
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	h.Readyz(rec, req)
+	c, w := setupTestContext("", "/readyz")
+	h.Readyz(c)
 
-	body := rec.Body.String()
+	body := w.Body.String()
 	if strings.Contains(body, "boom") {
 		t.Fatalf("readyz leaked internal error details: %s", body)
 	}
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d", rec.Code)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", w.Code)
 	}
 }
 
@@ -57,10 +72,10 @@ func TestGetTelemetry_ValidRequest(t *testing.T) {
 	mockSvc := &mockTelemetryService{
 		telemetry: []domain.EnrichedTelemetry{
 			{
-				Time:        time.Now().UTC(),
-				DeviceID:    "office-eng",
-				ProfileID:   "power_meter_9",
-				Metrics:     map[string]any{"voltage": 227.5, "current": 0.625},
+				Time:      time.Now().UTC(),
+				DeviceID:  "office-eng",
+				ProfileID: "power_meter_9",
+				Metrics:   map[string]any{"voltage": 227.5, "current": 0.625},
 			},
 		},
 	}
@@ -75,16 +90,15 @@ func TestGetTelemetry_ValidRequest(t *testing.T) {
 		true,
 	)
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/devices/office-eng/telemetry?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z&limit=100", nil)
-	h.GetTelemetry(rec, req)
+	c, w := setupTestContext("office-eng", "/api/v1/devices/office-eng/telemetry?from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z&limit=100")
+	h.GetTelemetry(c)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
 	var response map[string]interface{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
 
@@ -131,16 +145,15 @@ func TestGetTelemetry_MissingDeviceID(t *testing.T) {
 		true,
 	)
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/devices//telemetry", nil)
-	h.GetTelemetry(rec, req)
+	c, w := setupTestContext("", "/api/v1/devices//telemetry")
+	h.GetTelemetry(c)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
 	}
 
 	var response map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
 
@@ -163,16 +176,15 @@ func TestGetTelemetry_InvalidTimeRange(t *testing.T) {
 	)
 
 	// 4 months range exceeds 3 month limit
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/devices/office-eng/telemetry?from=2025-01-01T00:00:00Z&to=2025-05-01T00:00:00Z", nil)
-	h.GetTelemetry(rec, req)
+	c, w := setupTestContext("office-eng", "/api/v1/devices/office-eng/telemetry?from=2025-01-01T00:00:00Z&to=2025-05-01T00:00:00Z")
+	h.GetTelemetry(c)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
 	}
 
 	var response map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
 
@@ -194,12 +206,11 @@ func TestGetTelemetry_InvalidLimit(t *testing.T) {
 		true,
 	)
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/devices/office-eng/telemetry?limit=invalid", nil)
-	h.GetTelemetry(rec, req)
+	c, w := setupTestContext("office-eng", "/api/v1/devices/office-eng/telemetry?limit=invalid")
+	h.GetTelemetry(c)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
 
@@ -216,16 +227,15 @@ func TestGetTelemetry_LimitExceedsMax(t *testing.T) {
 		true,
 	)
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/devices/office-eng/telemetry?limit=100000", nil)
-	h.GetTelemetry(rec, req)
+	c, w := setupTestContext("office-eng", "/api/v1/devices/office-eng/telemetry?limit=100000")
+	h.GetTelemetry(c)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
 	}
 
 	var response map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
 
