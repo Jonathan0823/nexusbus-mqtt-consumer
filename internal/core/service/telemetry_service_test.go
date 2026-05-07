@@ -28,6 +28,15 @@ func (m *mockTelemetryRepo) QueryTelemetry(ctx context.Context, q domain.Telemet
 	return m.telemetry, nil
 }
 
+func (m *mockTelemetryRepo) StreamTelemetry(ctx context.Context, q domain.TelemetryQuery, fn func(domain.EnrichedTelemetry) error) error {
+	for _, t := range m.telemetry {
+		if err := fn(t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *mockTelemetryRepo) Ping(ctx context.Context) error { return nil }
 
 func TestDownsampleLTTB_PreservesEndpointsAndLimit(t *testing.T) {
