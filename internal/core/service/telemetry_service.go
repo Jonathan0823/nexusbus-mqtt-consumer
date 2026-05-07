@@ -78,8 +78,9 @@ func (s *TelemetryServiceImpl) QueryDeviceChart(ctx context.Context, q domain.Te
 	if len(q.MetricKeys) > 0 {
 		for _, key := range q.MetricKeys {
 			if pts, ok := seriesMap[key]; ok {
-				// Sort points ascending by timestamp for correct chart render order
+				// Sort points ascending by timestamp for correct chart render order.
 				sort.Slice(pts, func(i, j int) bool { return pts[i].X < pts[j].X })
+				pts = downsampleLTTB(pts, chartTargetPoints)
 				series = append(series, domain.ChartSeries{
 					Metric: key,
 					Points: pts,
@@ -88,8 +89,9 @@ func (s *TelemetryServiceImpl) QueryDeviceChart(ctx context.Context, q domain.Te
 		}
 	} else {
 		for key, pts := range seriesMap {
-			// Sort points ascending by timestamp for correct chart render order
+			// Sort points ascending by timestamp for correct chart render order.
 			sort.Slice(pts, func(i, j int) bool { return pts[i].X < pts[j].X })
+			pts = downsampleLTTB(pts, chartTargetPoints)
 			series = append(series, domain.ChartSeries{
 				Metric: key,
 				Points: pts,
