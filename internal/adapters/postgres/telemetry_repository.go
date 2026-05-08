@@ -209,6 +209,45 @@ func (r *Repository) QueryTelemetry(ctx context.Context, q domain.TelemetryQuery
 	return results, rows.Err()
 }
 
+// StreamTelemetry streams telemetry rows for a query (for large range queries).
+// The callback is called for each row. Returns error if any.
+func (r *Repository) StreamTelemetry(ctx context.Context, q domain.TelemetryQuery, fn func(domain.EnrichedTelemetry) error) error {
+	query := `
+		SELECT time, received_at, device_id, profile_id, register_type, address, count, source, metrics
+		FROM telemetry_enriched
+		WHERE device_id = $1 AND time >= $2 AND time <= $3
+		ORDER BY time ASC
+	`
+
+	rows, err := r.pool.Query(ctx, query, q.DeviceID, q.From, q.To)
+	if err != nil {
+		return fmt.Errorf("stream telemetry: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var row domain.EnrichedTelemetry
+		var metricsJSON []byte
+
+		err := rows.Scan(
+			&row.Time, &row.ReceivedAt, &row.DeviceID, &row.ProfileID,
+			&row.RegisterType, &row.Address, &row.Count, &row.Source,
+			&metricsJSON,
+		)
+		if err != nil {
+			return fmt.Errorf("scan row: %w", err)
+		}
+
+		json.Unmarshal(metricsJSON, &row.Metrics)
+
+		if err := fn(row); err != nil {
+			return err
+		}
+	}
+
+	return rows.Err()
+}
+
 // Ping checks database connectivity.
 func (r *Repository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)

@@ -68,6 +68,9 @@ func (f *fakeRepoCoalesceStream) QueryRange(context.Context, domain.TelemetryRan
 func (f *fakeRepoCoalesceStream) QueryTelemetry(context.Context, domain.TelemetryQuery) ([]domain.EnrichedTelemetry, error) {
 	return nil, nil
 }
+func (f *fakeRepoCoalesceStream) StreamTelemetry(context.Context, domain.TelemetryQuery, func(domain.EnrichedTelemetry) error) error {
+	return nil
+}
 func (f *fakeRepoCoalesceStream) Ping(context.Context) error { return nil }
 
 type fakeProfilesCoalesceStream struct{}

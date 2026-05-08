@@ -25,6 +25,9 @@ type TelemetryRepository interface {
 	QueryRange(ctx context.Context, q domain.TelemetryRangeQuery) ([]domain.EnrichedTelemetry, error)
 	// QueryTelemetry returns telemetry for dashboard queries.
 	QueryTelemetry(ctx context.Context, q domain.TelemetryQuery) ([]domain.EnrichedTelemetry, error)
+	// StreamTelemetry streams telemetry rows for a query (for large range queries).
+	// The callback is called for each row. Returns error if any.
+	StreamTelemetry(ctx context.Context, q domain.TelemetryQuery, fn func(domain.EnrichedTelemetry) error) error
 	// Ping checks database connectivity.
 	Ping(ctx context.Context) error
 }

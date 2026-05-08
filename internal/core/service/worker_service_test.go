@@ -53,6 +53,9 @@ func (f *fakeRepo) QueryRange(context.Context, domain.TelemetryRangeQuery) ([]do
 func (f *fakeRepo) QueryTelemetry(context.Context, domain.TelemetryQuery) ([]domain.EnrichedTelemetry, error) {
 	return nil, nil
 }
+func (f *fakeRepo) StreamTelemetry(context.Context, domain.TelemetryQuery, func(domain.EnrichedTelemetry) error) error {
+	return nil
+}
 func (f *fakeRepo) Ping(context.Context) error { return nil }
 
 type fakeProfiles struct{}

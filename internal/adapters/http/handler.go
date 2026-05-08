@@ -288,17 +288,18 @@ func (h *Handler) GetChart(c *gin.Context) {
 		return
 	}
 
-	// Parse limit - default 1000, max 50000
-	limit := domain.DefaultLimit
-	if limitStr := c.Query("limit"); limitStr != "" {
+	// Parse target_points - default 500, max 50000
+	// This is the LTTB downsampling target, not a database row limit.
+	targetPoints := 500
+	if tpStr := c.Query("target_points"); tpStr != "" {
 		var err error
-		limit, err = strconv.Atoi(limitStr)
-		if err != nil || limit <= 0 {
-			h.sendError(c, 400, "invalid limit value")
+		targetPoints, err = strconv.Atoi(tpStr)
+		if err != nil || targetPoints <= 0 {
+			h.sendError(c, 400, "invalid target_points value")
 			return
 		}
-		if limit > domain.MaxLimit {
-			h.sendError(c, 400, "limit exceeds maximum of 50000")
+		if targetPoints > domain.MaxLimit {
+			h.sendError(c, 400, "target_points exceeds maximum of 50000")
 			return
 		}
 	}
@@ -317,7 +318,7 @@ func (h *Handler) GetChart(c *gin.Context) {
 		DeviceID:   deviceID,
 		From:      from,
 		To:        to,
-		Limit:     limit,
+		Limit:     targetPoints,
 		MetricKeys: metricKeys,
 	}
 
@@ -334,7 +335,7 @@ func (h *Handler) GetChart(c *gin.Context) {
 		"device_id": deviceID,
 		"from":      from.Format(time.RFC3339),
 		"to":        to.Format(time.RFC3339),
-		"limit":     limit,
+		"target_points": targetPoints,
 	}
 
 	if len(metricKeys) > 0 {
