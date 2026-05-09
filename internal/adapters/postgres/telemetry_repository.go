@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -36,7 +37,11 @@ func (r *Repository) InsertBatchIdempotent(ctx context.Context, rows []domain.En
 	if err != nil {
 		return 0, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			r.logger.Debug("rollback failed", "error", err)
+		}
+	}()
 
 	inserted := 0
 
@@ -121,7 +126,11 @@ func (r *Repository) GetLatest(ctx context.Context, deviceID string) (*domain.En
 		return nil, fmt.Errorf("get latest: %w", err)
 	}
 
-	json.Unmarshal(metricsJSON, &row.Metrics)
+	metrics, err := decodeMetrics(metricsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("decode metrics: %w", err)
+	}
+	row.Metrics = metrics
 	if rawPayloadJSON != nil {
 		raw := json.RawMessage(rawPayloadJSON)
 		row.RawPayload = &raw
@@ -160,7 +169,11 @@ func (r *Repository) QueryRange(ctx context.Context, q domain.TelemetryRangeQuer
 			return nil, fmt.Errorf("scan row: %w", err)
 		}
 
-		json.Unmarshal(metricsJSON, &row.Metrics)
+		metrics, err := decodeMetrics(metricsJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode metrics: %w", err)
+		}
+		row.Metrics = metrics
 		if rawPayloadJSON != nil {
 			raw := json.RawMessage(rawPayloadJSON)
 			row.RawPayload = &raw
@@ -202,7 +215,11 @@ func (r *Repository) QueryTelemetry(ctx context.Context, q domain.TelemetryQuery
 			return nil, fmt.Errorf("scan row: %w", err)
 		}
 
-		json.Unmarshal(metricsJSON, &row.Metrics)
+		metrics, err := decodeMetrics(metricsJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode metrics: %w", err)
+		}
+		row.Metrics = metrics
 		results = append(results, row)
 	}
 
@@ -238,7 +255,11 @@ func (r *Repository) StreamTelemetry(ctx context.Context, q domain.TelemetryQuer
 			return fmt.Errorf("scan row: %w", err)
 		}
 
-		json.Unmarshal(metricsJSON, &row.Metrics)
+		metrics, err := decodeMetrics(metricsJSON)
+		if err != nil {
+			return fmt.Errorf("decode metrics: %w", err)
+		}
+		row.Metrics = metrics
 
 		if err := fn(row); err != nil {
 			return err
@@ -256,4 +277,17 @@ func (r *Repository) Ping(ctx context.Context) error {
 // Close closes the connection pool.
 func (r *Repository) Close() {
 	r.pool.Close()
+}
+
+func decodeMetrics(metricsJSON []byte) (map[string]any, error) {
+	if len(metricsJSON) == 0 {
+		return map[string]any{}, nil
+	}
+
+	metrics := make(map[string]any)
+	if err := json.Unmarshal(metricsJSON, &metrics); err != nil {
+		return nil, err
+	}
+
+	return metrics, nil
 }

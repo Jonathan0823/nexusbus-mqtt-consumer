@@ -225,7 +225,7 @@ func TestHashString_OutputFormat(t *testing.T) {
 
 	// Should be all lowercase hex
 	for _, c := range result {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			t.Errorf("invalid hex character: %c", c)
 		}
 	}

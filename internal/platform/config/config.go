@@ -122,7 +122,9 @@ type IngestConfig struct {
 
 // Load reads configuration from environment variables.
 func Load() (*Config, error) {
-	godotenv.Load()
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("load .env: %w", err)
+	}
 	cfg := Default()
 
 	// Override with environment variables
