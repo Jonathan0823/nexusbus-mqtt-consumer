@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"time"
@@ -16,12 +17,12 @@ import (
 // Handler holds HTTP handlers and dependencies.
 type Handler struct {
 	logger           *logging.Logger
-	metrics         *metrics.Recorder
+	metrics          *metrics.Recorder
 	telemetryService ports.TelemetryService
-	mqttPing        func() error
-	redisPing       func() error
-	postgresPing    func() error
-	profilesLoaded bool
+	mqttPing         func() error
+	redisPing        func() error
+	postgresPing     func() error
+	profilesLoaded   bool
 }
 
 // NewHandler creates a new HTTP handler.
@@ -40,8 +41,8 @@ func NewHandler(
 		telemetryService: telemetryService,
 		mqttPing:         mqttPing,
 		redisPing:        redisPing,
-		postgresPing:    postgresPing,
-		profilesLoaded:  profilesLoaded,
+		postgresPing:     postgresPing,
+		profilesLoaded:   profilesLoaded,
 	}
 }
 
@@ -115,6 +116,7 @@ func (h *Handler) Metrics(c *gin.Context) {
 	c.Header("Content-Type", "text/plain; version=0.0.4")
 	c.String(200, h.metrics.String())
 }
+
 // GetTelemetry returns telemetry data for a device.
 func (h *Handler) GetTelemetry(c *gin.Context) {
 	// Extract device_id from path parameter
@@ -191,15 +193,18 @@ func (h *Handler) GetTelemetry(c *gin.Context) {
 	// Build query
 	telemetryQuery := domain.TelemetryQuery{
 		DeviceID:   deviceID,
-		From:      from,
-		To:        to,
-		Limit:     limit,
+		From:       from,
+		To:         to,
+		Limit:      limit,
 		MetricKeys: metricKeys,
 	}
 
 	// Call service
 	results, err := h.telemetryService.QueryDeviceTelemetry(c.Request.Context(), telemetryQuery)
 	if err != nil {
+		if c.Request.Context().Err() == context.Canceled || c.Request.Context().Err() == context.DeadlineExceeded {
+			return
+		}
 		h.logger.Error("query telemetry failed", "error", err)
 		h.sendError(c, 500, "failed to query telemetry")
 		return
@@ -215,9 +220,9 @@ func (h *Handler) GetTelemetry(c *gin.Context) {
 			ProfileID:    r.ProfileID,
 			RegisterType: r.RegisterType,
 			Address:      r.Address,
-			Count:       r.Count,
-			Source:      r.Source,
-			Metrics:     r.Metrics,
+			Count:        r.Count,
+			Source:       r.Source,
+			Metrics:      r.Metrics,
 		})
 	}
 
@@ -225,10 +230,10 @@ func (h *Handler) GetTelemetry(c *gin.Context) {
 		"data": responseData,
 		"meta": map[string]interface{}{
 			"device_id": deviceID,
-			"from":     from.Format(time.RFC3339),
-			"to":       to.Format(time.RFC3339),
-			"limit":    limit,
-			"count":   len(results),
+			"from":      from.Format(time.RFC3339),
+			"to":        to.Format(time.RFC3339),
+			"limit":     limit,
+			"count":     len(results),
 		},
 	}
 
@@ -316,15 +321,18 @@ func (h *Handler) GetChart(c *gin.Context) {
 	// Build query
 	telemetryQuery := domain.TelemetryQuery{
 		DeviceID:   deviceID,
-		From:      from,
-		To:        to,
-		Limit:     targetPoints,
+		From:       from,
+		To:         to,
+		Limit:      targetPoints,
 		MetricKeys: metricKeys,
 	}
 
 	// Call service
 	series, err := h.telemetryService.QueryDeviceChart(c.Request.Context(), telemetryQuery)
 	if err != nil {
+		if c.Request.Context().Err() == context.Canceled || c.Request.Context().Err() == context.DeadlineExceeded {
+			return
+		}
 		h.logger.Error("query chart failed", "error", err)
 		h.sendError(c, 500, "failed to query chart")
 		return
@@ -332,9 +340,9 @@ func (h *Handler) GetChart(c *gin.Context) {
 
 	// Build meta (same as GetTelemetry)
 	meta := map[string]interface{}{
-		"device_id": deviceID,
-		"from":      from.Format(time.RFC3339),
-		"to":        to.Format(time.RFC3339),
+		"device_id":     deviceID,
+		"from":          from.Format(time.RFC3339),
+		"to":            to.Format(time.RFC3339),
 		"target_points": targetPoints,
 	}
 

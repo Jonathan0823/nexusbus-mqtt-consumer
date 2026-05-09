@@ -29,17 +29,17 @@ type Wiring struct {
 	Role config.ServiceRole
 
 	// Core services (may be nil depending on role)
-	IngestService      *service.IngestService
+	IngestService    *service.IngestService
 	WorkerService    *service.WorkerService
 	CoalescingWorker *service.CoalescingWorker
 	TelemetryService *service.TelemetryServiceImpl
 
 	// Adapters (may be nil depending on role)
 	MQTTSubscriber *mqtt.Subscriber
-	RedisBuffer   *redis.StreamBuffer
-	PostgresRepo  *postgres.Repository
-	ProfileReg  *yamlprofile.Registry
-	HTTPHandler *httphandler.Handler
+	RedisBuffer    *redis.StreamBuffer
+	PostgresRepo   *postgres.Repository
+	ProfileReg     *yamlprofile.Registry
+	HTTPHandler    *httphandler.Handler
 
 	// Metrics
 	Metrics *metrics.Recorder
