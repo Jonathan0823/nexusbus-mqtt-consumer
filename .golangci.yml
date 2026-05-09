@@ -4,5 +4,4 @@ run:
   go: '1.25.5'
 
 output:
-  formats:
-    - text
+  format: text
