@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,7 +16,9 @@ import (
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		os.Stderr.WriteString("config load error: " + err.Error() + "\n")
+		if _, writeErr := fmt.Fprintf(os.Stderr, "config load error: %v\n", err); writeErr != nil {
+			os.Exit(1)
+		}
 		os.Exit(1)
 	}
 

@@ -271,7 +271,9 @@ func (w *Wiring) Close() error {
 		w.PostgresRepo.Close()
 	}
 	if w.RedisBuffer != nil {
-		w.RedisBuffer.Close()
+		if err := w.RedisBuffer.Close(); err != nil {
+			w.Logger.Warn("redis buffer close failed", "error", err)
+		}
 	}
 
 	return nil

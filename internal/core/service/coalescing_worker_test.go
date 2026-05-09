@@ -26,6 +26,7 @@ func (f *fakeBufferCoalesceStream) Add(context.Context, domain.RawTelemetryMessa
 func (f *fakeBufferCoalesceStream) ReadBatch(context.Context, int) ([]domain.BufferedMessage, error) {
 	return append([]domain.BufferedMessage(nil), f.readBatch...), nil
 }
+
 func (f *fakeBufferCoalesceStream) Ack(_ context.Context, ids []string) error {
 	if f.ackErr != nil {
 		return f.ackErr
@@ -33,9 +34,11 @@ func (f *fakeBufferCoalesceStream) Ack(_ context.Context, ids []string) error {
 	f.ackedIDs = append(f.ackedIDs, ids...)
 	return nil
 }
+
 func (f *fakeBufferCoalesceStream) ClaimStale(context.Context, time.Duration, int) ([]domain.BufferedMessage, error) {
 	return append([]domain.BufferedMessage(nil), f.claimed...), nil
 }
+
 func (f *fakeBufferCoalesceStream) IncrementRetry(context.Context, string) (int, error) {
 	return f.retryCount, nil
 }
@@ -59,15 +62,19 @@ type fakeRepoCoalesceStream struct {
 func (f *fakeRepoCoalesceStream) InsertBatchIdempotent(context.Context, []domain.EnrichedTelemetry) (int, error) {
 	return f.inserted, f.err
 }
+
 func (f *fakeRepoCoalesceStream) GetLatest(context.Context, string) (*domain.EnrichedTelemetry, error) {
 	return nil, nil
 }
+
 func (f *fakeRepoCoalesceStream) QueryRange(context.Context, domain.TelemetryRangeQuery) ([]domain.EnrichedTelemetry, error) {
 	return nil, nil
 }
+
 func (f *fakeRepoCoalesceStream) QueryTelemetry(context.Context, domain.TelemetryQuery) ([]domain.EnrichedTelemetry, error) {
 	return nil, nil
 }
+
 func (f *fakeRepoCoalesceStream) StreamTelemetry(context.Context, domain.TelemetryQuery, func(domain.EnrichedTelemetry) error) error {
 	return nil
 }
@@ -78,6 +85,7 @@ type fakeProfilesCoalesceStream struct{}
 func (fakeProfilesCoalesceStream) Match(payload domain.RawTelemetryPayload) (*domain.DeviceProfile, error) {
 	return &domain.DeviceProfile{ID: "power_meter_9"}, nil
 }
+
 func (fakeProfilesCoalesceStream) Transform(payload domain.RawTelemetryPayload, profile *domain.DeviceProfile) (map[string]any, error) {
 	return map[string]any{"voltage": 220.0}, nil
 }
@@ -160,7 +168,9 @@ func TestCoalescingWorker_IgnoresOlderMessage(t *testing.T) {
 			Values:    []int{200},
 		},
 	}
-	w.BufferOne(msgNew)
+	if err := w.BufferOne(msgNew); err != nil {
+		t.Fatalf("BufferOne failed: %v", err)
+	}
 
 	msgOld := domain.BufferedMessage{
 		ID: "1",
@@ -170,7 +180,9 @@ func TestCoalescingWorker_IgnoresOlderMessage(t *testing.T) {
 			Values:    []int{100},
 		},
 	}
-	w.BufferOne(msgOld)
+	if err := w.BufferOne(msgOld); err != nil {
+		t.Fatalf("BufferOne failed: %v", err)
+	}
 
 	if w.PendingCount() != 1 {
 		t.Fatalf("expected 1, got %d", w.PendingCount())
@@ -193,8 +205,12 @@ func TestCoalescingWorker_DifferentDevices(t *testing.T) {
 		Payload: domain.RawTelemetryPayload{DeviceID: "device-2", Timestamp: "100"},
 	}
 
-	w.BufferOne(msg1)
-	w.BufferOne(msg2)
+	if err := w.BufferOne(msg1); err != nil {
+		t.Fatalf("BufferOne failed: %v", err)
+	}
+	if err := w.BufferOne(msg2); err != nil {
+		t.Fatalf("BufferOne failed: %v", err)
+	}
 
 	if w.PendingCount() != 2 {
 		t.Fatalf("expected 2, got %d", w.PendingCount())
@@ -217,7 +233,9 @@ func TestCoalescingWorker_PendingCount(t *testing.T) {
 		ID:      "1",
 		Payload: domain.RawTelemetryPayload{DeviceID: "device-1", Timestamp: "100"},
 	}
-	w.BufferOne(msg)
+	if err := w.BufferOne(msg); err != nil {
+		t.Fatalf("BufferOne failed: %v", err)
+	}
 
 	if w.PendingCount() != 1 {
 		t.Fatalf("expected 1, got %d", w.PendingCount())
@@ -240,10 +258,16 @@ func TestCoalescingWorker_AcksAllStreamIDs(t *testing.T) {
 		Payload: domain.RawTelemetryPayload{DeviceID: "device-1", Timestamp: "200"},
 	}
 
-	w.BufferOne(msg1)
-	w.BufferOne(msg2)
+	if err := w.BufferOne(msg1); err != nil {
+		t.Fatalf("BufferOne failed: %v", err)
+	}
+	if err := w.BufferOne(msg2); err != nil {
+		t.Fatalf("BufferOne failed: %v", err)
+	}
 
-	w.Flush(context.Background())
+	if err := w.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
 
 	if len(buf.ackedIDs) != 2 {
 		t.Fatalf("expected 2 acked IDs, got %d: %v", len(buf.ackedIDs), buf.ackedIDs)
@@ -301,7 +325,9 @@ func TestCoalescingWorker_DeadlettersAndAcksFailedEntries(t *testing.T) {
 	}
 
 	w.profiles = failingTransformProfilesCoalesceStream{}
-	w.Flush(context.Background())
+	if err := w.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
 
 	if len(buf.deadlettered) != 1 {
 		t.Fatalf("expected 1 deadlettered message, got %d", len(buf.deadlettered))
@@ -330,7 +356,9 @@ func TestCoalescingWorker_DeadletterAckFailureDoesNotResetRetry(t *testing.T) {
 	}
 
 	w.profiles = failingTransformProfilesCoalesceStream{}
-	w.Flush(context.Background())
+	if err := w.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
 
 	if len(buf.deadlettered) != 1 {
 		t.Fatalf("expected 1 deadlettered message, got %d", len(buf.deadlettered))
@@ -355,7 +383,9 @@ func TestCoalescingWorker_FlushWithFreshContext(t *testing.T) {
 		ID:      "1",
 		Payload: domain.RawTelemetryPayload{DeviceID: "device-1", Timestamp: "100"},
 	}
-	w.BufferOne(msg)
+	if err := w.BufferOne(msg); err != nil {
+		t.Fatalf("BufferOne failed: %v", err)
+	}
 
 	// Use a fresh context, not the one that might be canceled
 	ctx := context.Background()
@@ -380,10 +410,14 @@ func TestCoalescingWorker_FailedEntriesRetry(t *testing.T) {
 		ID:      "1",
 		Payload: domain.RawTelemetryPayload{DeviceID: "device-1", Timestamp: "100"},
 	}
-	w.BufferOne(msg)
+	if err := w.BufferOne(msg); err != nil {
+		t.Fatalf("BufferOne failed: %v", err)
+	}
 
 	// Flush will fail on insert, triggering retry handling
-	w.Flush(context.Background())
+	if err := w.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
 
 	// The message should not be acked (will be retried)
 	if len(buf.ackedIDs) != 0 {
@@ -409,7 +443,9 @@ func TestCoalescingWorker_ConcurrentBufferOne(t *testing.T) {
 					ID:      fmt.Sprintf("%d-%d", idx, j),
 					Payload: domain.RawTelemetryPayload{DeviceID: fmt.Sprintf("device-%d", idx), Timestamp: "100"},
 				}
-				w.BufferOne(msg)
+				if err := w.BufferOne(msg); err != nil {
+					t.Errorf("BufferOne failed: %v", err)
+				}
 			}
 		}(i)
 	}
