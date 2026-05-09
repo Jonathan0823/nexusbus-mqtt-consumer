@@ -31,4 +31,3 @@ type TelemetryRepository interface {
 	// Ping checks database connectivity.
 	Ping(ctx context.Context) error
 }
-

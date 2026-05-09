@@ -20,8 +20,8 @@ import (
 // mockTelemetryService is a mock implementation of TelemetryService for testing.
 type mockTelemetryService struct {
 	telemetry []domain.EnrichedTelemetry
-	chart    []domain.ChartSeries
-	err      error
+	chart     []domain.ChartSeries
+	err       error
 }
 
 func (m *mockTelemetryService) QueryDeviceTelemetry(ctx context.Context, q domain.TelemetryQuery) ([]domain.EnrichedTelemetry, error) {
@@ -44,6 +44,22 @@ func setupTestContext(deviceID, queryPath string) (c *gin.Context, w *httptest.R
 		}
 	}
 	return c, w
+}
+
+// setupTestContextWithCanceledCtx creates a test context with a canceled parent context.
+func setupTestContextWithCanceledCtx(deviceID, queryPath string) (c *gin.Context, w *httptest.ResponseRecorder, cancel func()) {
+	gin.SetMode(gin.TestMode)
+	w = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(w)
+	ctx, cancelCtx := context.WithCancel(context.Background())
+	cancelCtx() // cancel immediately so the context is already canceled
+	c.Request = httptest.NewRequest(http.MethodGet, queryPath, nil).WithContext(ctx)
+	if deviceID != "" {
+		c.Params = gin.Params{
+			{Key: "device_id", Value: deviceID},
+		}
+	}
+	return c, w, cancelCtx
 }
 
 func TestReadyzDoesNotExposeBackendErrors(t *testing.T) {
@@ -407,5 +423,107 @@ func TestGetChart_FilterByMetrics(t *testing.T) {
 	voltageSeries, ok := series[0].(map[string]any)
 	if !ok || voltageSeries["metric"] != "voltage" {
 		t.Fatalf("expected only voltage series, got %v", series[0])
+	}
+}
+
+func TestGetTelemetry_RequestCanceled(t *testing.T) {
+	t.Parallel()
+
+	mockSvc := &mockTelemetryService{
+		err: context.Canceled,
+	}
+
+	h := NewHandler(
+		logging.New("error"),
+		metrics.NewRecorder(),
+		mockSvc,
+		nil,
+		nil,
+		nil,
+		true,
+	)
+
+	c, w, cancel := setupTestContextWithCanceledCtx("office-eng", "/api/v1/devices/office-eng/telemetry")
+	defer cancel()
+	h.GetTelemetry(c)
+
+	if w.Code != http.StatusOK && w.Code != http.StatusNoContent {
+		t.Fatalf("expected no response on cancel, got %d", w.Code)
+	}
+}
+
+func TestGetTelemetry_ServerError(t *testing.T) {
+	t.Parallel()
+
+	mockSvc := &mockTelemetryService{
+		err: errors.New("db connection lost"),
+	}
+
+	h := NewHandler(
+		logging.New("error"),
+		metrics.NewRecorder(),
+		mockSvc,
+		nil,
+		nil,
+		nil,
+		true,
+	)
+
+	c, w := setupTestContext("office-eng", "/api/v1/devices/office-eng/telemetry")
+	h.GetTelemetry(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for server error, got %d", w.Code)
+	}
+}
+
+func TestGetChart_RequestCanceled(t *testing.T) {
+	t.Parallel()
+
+	mockSvc := &mockTelemetryService{
+		err: context.Canceled,
+	}
+
+	h := NewHandler(
+		logging.New("error"),
+		metrics.NewRecorder(),
+		mockSvc,
+		nil,
+		nil,
+		nil,
+		true,
+	)
+
+	c, w, cancel := setupTestContextWithCanceledCtx("office-eng", "/api/v1/devices/office-eng/chart")
+	defer cancel()
+	h.GetChart(c)
+
+	if w.Code != http.StatusOK && w.Code != http.StatusNoContent {
+		t.Fatalf("expected no response on cancel, got %d", w.Code)
+	}
+}
+
+func TestGetChart_ServerError(t *testing.T) {
+	t.Parallel()
+
+	mockSvc := &mockTelemetryService{
+		err: errors.New("db connection lost"),
+	}
+
+	h := NewHandler(
+		logging.New("error"),
+		metrics.NewRecorder(),
+		mockSvc,
+		nil,
+		nil,
+		nil,
+		true,
+	)
+
+	c, w := setupTestContext("office-eng", "/api/v1/devices/office-eng/chart")
+	h.GetChart(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for server error, got %d", w.Code)
 	}
 }

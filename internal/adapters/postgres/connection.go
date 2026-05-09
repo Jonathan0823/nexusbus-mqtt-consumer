@@ -31,4 +31,3 @@ func NewPool(ctx context.Context, cfg config.PostgresConfig, logger *logging.Log
 	logger.Info("postgres connected", "max_conns", cfg.MaxWriteConns)
 	return pool, nil
 }
-

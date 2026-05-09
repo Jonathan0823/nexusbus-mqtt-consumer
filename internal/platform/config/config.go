@@ -28,8 +28,8 @@ type ServiceRole string
 
 // Service role constants.
 const (
-	RoleAll       ServiceRole = "all"
-	RoleHTTPOnly  ServiceRole = "http-only"
+	RoleAll        ServiceRole = "all"
+	RoleHTTPOnly   ServiceRole = "http-only"
 	RoleIngestOnly ServiceRole = "ingest-only"
 	RoleWorkerOnly ServiceRole = "worker-only"
 )
@@ -39,7 +39,7 @@ type ServiceConfig struct {
 	Name       string
 	InstanceID string
 	LogLevel   string
-	Role      ServiceRole
+	Role       ServiceRole
 }
 
 // setRole parses SERVICE_ROLE env var with fallback to RoleAll.
@@ -110,7 +110,7 @@ type WorkerConfig struct {
 
 // HTTPConfig holds HTTP server settings.
 type HTTPConfig struct {
-	ListenAddr      string
+	ListenAddr         string
 	CORSAllowedOrigins []string // comma-separated list of allowed origins
 }
 
@@ -183,10 +183,10 @@ func Default() *Config {
 			RetryBackoffInitial: time.Second,
 			RetryBackoffMax:     60 * time.Second,
 		},
-HTTP: HTTPConfig{
-		ListenAddr:        ":8080",
-		CORSAllowedOrigins: nil,
-	},
+		HTTP: HTTPConfig{
+			ListenAddr:         ":8080",
+			CORSAllowedOrigins: nil,
+		},
 		Ingest: IngestConfig{
 			Mode:          "normal",
 			FlushInterval: 30 * time.Second,

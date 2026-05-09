@@ -216,9 +216,9 @@ type TelemetryQuery struct {
 
 // Query constants for telemetry GET route.
 const (
-	MaxTimeRange   = 90 * 24 * time.Hour // 3 months in hours
-	DefaultLimit   = 1000
-	MaxLimit       = 50000
+	MaxTimeRange = 90 * 24 * time.Hour // 3 months in hours
+	DefaultLimit = 1000
+	MaxLimit     = 50000
 )
 
 // ChartPoint represents a single data point for charting.
@@ -230,7 +230,7 @@ type ChartPoint struct {
 
 // ChartSeries represents a single metric series for charting.
 type ChartSeries struct {
-	Metric string      `json:"metric"`
+	Metric string       `json:"metric"`
 	Points []ChartPoint `json:"points"`
 }
 
