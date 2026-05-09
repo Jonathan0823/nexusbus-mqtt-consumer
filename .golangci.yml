@@ -1,0 +1,8 @@
+run:
+  go: '1.25.5'
+
+output:
+  formats:
+    text:
+      path: stdout
+      colors: true
