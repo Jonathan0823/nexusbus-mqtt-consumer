@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,7 +39,9 @@ func (r *Repository) InsertBatchIdempotent(ctx context.Context, rows []domain.En
 		return 0, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() {
-		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		rbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := tx.Rollback(rbCtx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
 			r.logger.Debug("rollback failed", "error", err)
 		}
 	}()
