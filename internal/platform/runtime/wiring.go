@@ -2,12 +2,13 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
 	httphandler "modbus-mqtt-consumer/internal/adapters/http"
-	"modbus-mqtt-consumer/internal/adapters/mqtt"
+	mqttadapter "modbus-mqtt-consumer/internal/adapters/mqtt"
 	"modbus-mqtt-consumer/internal/adapters/postgres"
 	redisadapter "modbus-mqtt-consumer/internal/adapters/redis"
 	"modbus-mqtt-consumer/internal/adapters/yamlprofile"
@@ -17,6 +18,8 @@ import (
 	"modbus-mqtt-consumer/internal/platform/config"
 	"modbus-mqtt-consumer/internal/platform/logging"
 	"modbus-mqtt-consumer/internal/platform/metrics"
+
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 // Wiring holds all component dependencies.
@@ -36,7 +39,7 @@ type Wiring struct {
 	TelemetryService ports.TelemetryService
 
 	// Adapters (may be nil depending on role)
-	MQTTSubscriber *mqtt.Subscriber
+	MQTTSubscriber *mqttadapter.Subscriber
 	RedisBuffer    *redisadapter.StreamBuffer
 	ChartCache     *redisadapter.ChartCacheAdapter
 	PostgresRepo   *postgres.Repository
@@ -111,14 +114,33 @@ func buildAll(ctx context.Context, cfg *config.Config, logger *logging.Logger) (
 	// Ingest Service
 	w.IngestService = service.NewIngestService(w.RedisBuffer, logger)
 
-	// MQTT Client
-	mqttClient, err := mqtt.NewClient(cfg.MQTT, logger)
+	// MQTT Client with auto-reconnect and per-reconnect resubscribe.
+	onConnected := func(client mqtt.Client) {
+		qos := byte(cfg.MQTT.QOS)
+		token := client.Subscribe(cfg.MQTT.Topic, qos, func(_ mqtt.Client, msg mqtt.Message) {
+			var payload domain.RawTelemetryPayload
+			if err := json.Unmarshal(msg.Payload(), &payload); err != nil {
+				logger.Error("mqtt message parse error", "error", err)
+				return
+			}
+			w.Metrics.IncMQTTReceived()
+			if err := w.IngestService.Handle(ctx, payload); err != nil {
+				logger.Error("mqtt message handler error", "error", err)
+			}
+		})
+		if token.Wait() && token.Error() != nil {
+			logger.Error("mqtt resubscribe failed", "error", token.Error())
+			return
+		}
+		logger.Info("mqtt subscribed (resubscribe)", "topic", cfg.MQTT.Topic)
+	}
+	mqttClient, err := mqttadapter.NewClient(cfg.MQTT, logger, onConnected)
 	if err != nil {
 		return nil, fmt.Errorf("mqtt client: %w", err)
 	}
 
-	// MQTT Subscriber
-	w.MQTTSubscriber = mqtt.NewSubscriber(cfg.MQTT, mqttClient, logger)
+	// MQTT Subscriber (used for connection state tracking only)
+	w.MQTTSubscriber = mqttadapter.NewSubscriber(cfg.MQTT, mqttClient, logger)
 
 	// Worker Service
 	w.WorkerService = service.NewWorkerService(
@@ -195,7 +217,7 @@ func (w *Wiring) StartMQTT(ctx context.Context) error {
 		return fmt.Errorf("mqtt subscribe: %w", err)
 	}
 
-	w.Logger.Info("mqtt subscriber started")
+	w.Logger.Info("mqtt subscriber started", "broker", w.Cfg.MQTT.Broker, "topic", w.Cfg.MQTT.Topic, "client_id", w.Cfg.MQTT.ClientID)
 	return nil
 }
 
