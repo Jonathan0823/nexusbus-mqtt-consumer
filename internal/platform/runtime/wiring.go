@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	httphandler "modbus-mqtt-consumer/internal/adapters/http"
@@ -115,7 +116,12 @@ func buildAll(ctx context.Context, cfg *config.Config, logger *logging.Logger) (
 	w.IngestService = service.NewIngestService(w.RedisBuffer, logger)
 
 	// MQTT Client with auto-reconnect and per-reconnect resubscribe.
+	var initialConnectSeen atomic.Bool
 	onConnected := func(client mqtt.Client) {
+		if !initialConnectSeen.Swap(true) {
+			return
+		}
+
 		qos := byte(cfg.MQTT.QOS)
 		token := client.Subscribe(cfg.MQTT.Topic, qos, func(_ mqtt.Client, msg mqtt.Message) {
 			var payload domain.RawTelemetryPayload

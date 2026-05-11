@@ -1,6 +1,8 @@
 package mqtt
 
 import (
+	"time"
+
 	"modbus-mqtt-consumer/internal/platform/config"
 	"modbus-mqtt-consumer/internal/platform/logging"
 
@@ -9,7 +11,7 @@ import (
 
 // NewClient creates a new MQTT client with auto-reconnect.
 // onConnected is called (with the subscribed client) after every successful
-// connect and reconnect. The caller should perform the first subscribe inside it.
+// connect and reconnect. Callers can use it to restore subscription state.
 func NewClient(cfg config.MQTTConfig, logger *logging.Logger, onConnected func(mqtt.Client)) (mqtt.Client, error) {
 	opts := mqtt.NewClientOptions().
 		SetClientID(cfg.ClientID).
@@ -17,7 +19,7 @@ func NewClient(cfg config.MQTTConfig, logger *logging.Logger, onConnected func(m
 		AddBroker(cfg.Broker).
 		SetConnectTimeout(cfg.Timeout).
 		SetAutoReconnect(true).
-		SetConnectRetryInterval(5).
+		SetConnectRetryInterval(5 * time.Second).
 		SetOrderMatters(false)
 
 	if cfg.Username != "" {
@@ -44,9 +46,5 @@ func NewClient(cfg config.MQTTConfig, logger *logging.Logger, onConnected func(m
 	})
 
 	client := mqtt.NewClient(opts)
-	if client == nil {
-		return nil, nil
-	}
-
 	return client, nil
 }
