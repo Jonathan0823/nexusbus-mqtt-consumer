@@ -12,10 +12,10 @@ import (
 
 // CachedTelemetryService wraps TelemetryService with Redis caching for chart queries.
 type CachedTelemetryService struct {
-	delegate  ports.TelemetryService
-	cache     ports.ChartCache
-	logger    *logging.Logger
-	cacheTTL  time.Duration
+	delegate ports.TelemetryService
+	cache    ports.ChartCache
+	logger   *logging.Logger
+	cacheTTL time.Duration
 }
 
 // NewCachedTelemetryService creates a new cached telemetry service.
@@ -26,10 +26,10 @@ func NewCachedTelemetryService(
 	cacheTTL time.Duration,
 ) *CachedTelemetryService {
 	return &CachedTelemetryService{
-		delegate:  delegate,
-		cache:     cache,
-		logger:    logger,
-		cacheTTL:  cacheTTL,
+		delegate: delegate,
+		cache:    cache,
+		logger:   logger,
+		cacheTTL: cacheTTL,
 	}
 }
 

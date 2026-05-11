@@ -39,8 +39,8 @@ func TestNewEngine_PrefixedPath(t *testing.T) {
 	engine := NewEngine(h, nil, "/telemetry")
 
 	routes := []struct {
-		method, path       string
-		wantStatus         int
+		method, path string
+		wantStatus   int
 	}{
 		{http.MethodGet, "/telemetry/healthz", http.StatusOK},
 		{http.MethodGet, "/telemetry/readyz", http.StatusOK},
@@ -67,8 +67,8 @@ func TestNewEngine_DeepBasePath(t *testing.T) {
 	engine := NewEngine(h, nil, "/api/v1/telemetry")
 
 	routes := []struct {
-		method, path       string
-		wantStatus         int
+		method, path string
+		wantStatus   int
 	}{
 		{http.MethodGet, "/api/v1/telemetry/healthz", http.StatusOK},
 		{http.MethodGet, "/api/v1/telemetry/readyz", http.StatusOK},

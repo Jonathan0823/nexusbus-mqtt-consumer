@@ -13,9 +13,9 @@ import (
 
 // ChartCacheAdapter implements ports.ChartCache using Redis.
 type ChartCacheAdapter struct {
-	client     *redis.Client
-	keyPrefix  string
-	logger     *logging.Logger
+	client    *redis.Client
+	keyPrefix string
+	logger    *logging.Logger
 }
 
 // NewChartCache creates a new Redis-backed chart cache.
