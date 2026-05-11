@@ -9,9 +9,10 @@ import (
 	httphandler "modbus-mqtt-consumer/internal/adapters/http"
 	"modbus-mqtt-consumer/internal/adapters/mqtt"
 	"modbus-mqtt-consumer/internal/adapters/postgres"
-	"modbus-mqtt-consumer/internal/adapters/redis"
+	redisadapter "modbus-mqtt-consumer/internal/adapters/redis"
 	"modbus-mqtt-consumer/internal/adapters/yamlprofile"
 	"modbus-mqtt-consumer/internal/core/domain"
+	"modbus-mqtt-consumer/internal/core/ports"
 	"modbus-mqtt-consumer/internal/core/service"
 	"modbus-mqtt-consumer/internal/platform/config"
 	"modbus-mqtt-consumer/internal/platform/logging"
@@ -32,11 +33,12 @@ type Wiring struct {
 	IngestService    *service.IngestService
 	WorkerService    *service.WorkerService
 	CoalescingWorker *service.CoalescingWorker
-	TelemetryService *service.TelemetryServiceImpl
+	TelemetryService ports.TelemetryService
 
 	// Adapters (may be nil depending on role)
 	MQTTSubscriber *mqtt.Subscriber
-	RedisBuffer    *redis.StreamBuffer
+	RedisBuffer    *redisadapter.StreamBuffer
+	ChartCache     *redisadapter.ChartCacheAdapter
 	PostgresRepo   *postgres.Repository
 	ProfileReg     *yamlprofile.Registry
 	HTTPHandler    *httphandler.Handler
@@ -71,18 +73,24 @@ func buildAll(ctx context.Context, cfg *config.Config, logger *logging.Logger) (
 	// Metrics recorder
 	w.Metrics = metrics.NewRecorder()
 
-	// Redis Stream Buffer
-	redisClient, err := redis.NewClient(cfg.Redis, logger)
+	// Redis client (shared for stream buffer and chart cache)
+	redisClient, err := redisadapter.NewClient(cfg.Redis, logger)
 	if err != nil {
 		return nil, fmt.Errorf("redis client: %w", err)
 	}
 
-	redisBuf, err := redis.NewStreamBuffer(redisClient, cfg.Redis, logger)
+	// Redis Stream Buffer
+	redisBuf, err := redisadapter.NewStreamBuffer(redisClient, cfg.Redis, logger)
 	if err != nil {
 		_ = redisClient.Close()
 		return nil, fmt.Errorf("redis buffer: %w", err)
 	}
 	w.RedisBuffer = redisBuf
+
+	// Redis Chart Cache (optional - don't fail if Redis is unavailable)
+	chartCache := redisadapter.NewChartCache(redisClient, logger)
+	w.ChartCache = chartCache
+	logger.Info("chart cache initialized")
 
 	// PostgreSQL Repository
 	postgresPool, err := postgres.NewPool(ctx, cfg.Postgres, logger)
@@ -133,8 +141,16 @@ func buildAll(ctx context.Context, cfg *config.Config, logger *logging.Logger) (
 		cfg.Ingest.FlushInterval,
 	)
 
-	// Telemetry Service
-	w.TelemetryService = service.NewTelemetryService(w.PostgresRepo)
+	// Telemetry Service (base implementation)
+	baseTelemetryService := service.NewTelemetryService(w.PostgresRepo)
+
+	// Wrap with caching decorator for chart queries
+	w.TelemetryService = service.NewCachedTelemetryService(
+		baseTelemetryService,
+		w.ChartCache,
+		logger,
+		cfg.Cache.ChartTTL,
+	)
 
 	// HTTP Handler
 	w.HTTPHandler = httphandler.NewHandler(
@@ -153,7 +169,7 @@ func buildAll(ctx context.Context, cfg *config.Config, logger *logging.Logger) (
 	)
 
 	// HTTP routes and server
-	engine := httphandler.NewEngine(w.HTTPHandler, cfg.HTTP.CORSAllowedOrigins)
+	engine := httphandler.NewEngine(w.HTTPHandler, cfg.HTTP.CORSAllowedOrigins, cfg.HTTP.BasePath)
 	w.HTTPServer = &http.Server{
 		Addr:              cfg.HTTP.ListenAddr,
 		Handler:           engine,
@@ -275,6 +291,11 @@ func (w *Wiring) Close() error {
 			w.Logger.Warn("redis buffer close failed", "error", err)
 		}
 	}
+	if w.ChartCache != nil {
+		if err := w.ChartCache.Close(); err != nil {
+			w.Logger.Warn("chart cache close failed", "error", err)
+		}
+	}
 
 	return nil
 }
@@ -304,8 +325,31 @@ func buildHTTPOnly(ctx context.Context, cfg *config.Config, logger *logging.Logg
 	}
 	w.ProfileReg = profileReg
 
-	// Telemetry Service for GET route
-	w.TelemetryService = service.NewTelemetryService(w.PostgresRepo)
+	// Try to create Redis chart cache (optional - don't panic if it fails)
+	var chartCache *redisadapter.ChartCacheAdapter
+	redisClient, err := redisadapter.NewClient(cfg.Redis, logger)
+	if err != nil {
+		logger.Warn("chart cache: Redis unavailable, running without cache", "error", err)
+	} else {
+		chartCache = redisadapter.NewChartCache(redisClient, logger)
+		w.ChartCache = chartCache
+		logger.Info("chart cache initialized")
+	}
+
+	// Telemetry Service (base implementation)
+	baseTelemetryService := service.NewTelemetryService(w.PostgresRepo)
+
+	// Wrap with caching decorator if cache is available
+	if chartCache != nil {
+		w.TelemetryService = service.NewCachedTelemetryService(
+			baseTelemetryService,
+			chartCache,
+			logger,
+			cfg.Cache.ChartTTL,
+		)
+	} else {
+		w.TelemetryService = baseTelemetryService
+	}
 
 	// HTTP Handler (nil pings since no MQTT/Redis)
 	w.HTTPHandler = httphandler.NewHandler(
@@ -318,7 +362,7 @@ func buildHTTPOnly(ctx context.Context, cfg *config.Config, logger *logging.Logg
 		true,
 	)
 
-	engine := httphandler.NewEngine(w.HTTPHandler, cfg.HTTP.CORSAllowedOrigins)
+	engine := httphandler.NewEngine(w.HTTPHandler, cfg.HTTP.CORSAllowedOrigins, cfg.HTTP.BasePath)
 	w.HTTPServer = &http.Server{
 		Addr:              cfg.HTTP.ListenAddr,
 		Handler:           engine,

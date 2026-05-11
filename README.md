@@ -122,6 +122,7 @@ Other common variables:
 - `INSTANCE_ID`
 - `LOG_LEVEL`
 - `HTTP_LISTEN_ADDR`
+- `HTTP_BASE_PATH`
 - `CORS_ALLOWED_ORIGINS`
 - `MQTT_CLIENT_ID`
 - `MQTT_TOPIC`
@@ -162,6 +163,24 @@ For development, use localhost origins. The service uses strict allowlist — on
 - `GET` and `OPTIONS` methods are allowed
 - No credentials are sent (`AllowCredentials = false`)
 - For same-origin requests (no `Origin` header), CORS headers are not added
+
+### Base Path (`HTTP_BASE_PATH`)
+
+For reverse-proxy deployments that serve the service under a prefix, set `HTTP_BASE_PATH`:
+
+```bash
+HTTP_BASE_PATH=/telemetry
+```
+
+All routes are then mounted under the prefix:
+
+- `GET /telemetry/healthz`
+- `GET /telemetry/readyz`
+- `GET /telemetry/metrics`
+- `GET /telemetry/api/v1/devices/:device_id/telemetry`
+- `GET /telemetry/api/v1/devices/:device_id/chart`
+
+When unset or empty, routes are at root (`/healthz`, etc.). The reverse proxy must preserve the prefix when forwarding requests — do not strip it at the proxy layer.
 
 ### Service Role (`SERVICE_ROLE`)
 
