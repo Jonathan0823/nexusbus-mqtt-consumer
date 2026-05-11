@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 
 	"modbus-mqtt-consumer/internal/core/domain"
 	"modbus-mqtt-consumer/internal/platform/config"
@@ -13,13 +14,13 @@ import (
 )
 
 // Subscriber implements MQTTSubscriber using paho.mqtt.golang.
-// It provides connection state tracking. Resubscription on reconnect
-// is handled by wiring.go via the onConnected callback.
+// It tracks both transport connection and subscription state for health checks.
 type Subscriber struct {
-	config    config.MQTTConfig
-	client    mqtt.Client
-	connected bool
-	logger    *logging.Logger
+	config     config.MQTTConfig
+	client     mqtt.Client
+	connected  atomic.Bool
+	subscribed atomic.Bool
+	logger     *logging.Logger
 }
 
 // NewSubscriber creates a new MQTT subscriber with an injected client.
@@ -39,7 +40,7 @@ func (s *Subscriber) Subscribe(ctx context.Context, handler func(msg domain.RawT
 		return fmt.Errorf("mqtt connect failed: %w", token.Error())
 	}
 
-	s.connected = true
+	s.connected.Store(true)
 
 	qos := byte(s.config.QOS)
 	token := s.client.Subscribe(s.config.Topic, qos, func(_ mqtt.Client, msg mqtt.Message) {
@@ -56,13 +57,31 @@ func (s *Subscriber) Subscribe(ctx context.Context, handler func(msg domain.RawT
 		return fmt.Errorf("mqtt subscribe failed: %w", token.Error())
 	}
 
+	s.subscribed.Store(true)
 	s.logger.Info("mqtt subscribed", "topic", s.config.Topic, "qos", s.config.QOS)
 	return nil
 }
 
-// IsConnected returns true if the client is connected.
+// SetConnected sets the transport connection state.
+func (s *Subscriber) SetConnected(v bool) {
+	s.connected.Store(v)
+}
+
+// SetSubscribed marks the subscription state. Call this from reconnect callbacks
+// to update readiness after resubscription attempts.
+func (s *Subscriber) SetSubscribed(v bool) {
+	s.subscribed.Store(v)
+}
+
+// IsReady returns true if the client is connected and subscribed to the topic.
+func (s *Subscriber) IsReady() bool {
+	return s.connected.Load() && s.subscribed.Load() && s.client != nil && s.client.IsConnected()
+}
+
+// IsConnected returns true if the client transport is connected.
+// Deprecated: use IsReady for health checks.
 func (s *Subscriber) IsConnected() bool {
-	return s.connected && s.client != nil && s.client.IsConnected()
+	return s.connected.Load() && s.client != nil && s.client.IsConnected()
 }
 
 // Close disconnects from the broker.
@@ -71,7 +90,8 @@ func (s *Subscriber) Close() error {
 		s.client.Disconnect(500)
 	}
 	s.logger.Info("mqtt disconnected")
-	s.connected = false
+	s.connected.Store(false)
+	s.subscribed.Store(false)
 
 	return nil
 }

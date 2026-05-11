@@ -136,7 +136,14 @@ func buildAll(ctx context.Context, cfg *config.Config, logger *logging.Logger) (
 		})
 		if token.Wait() && token.Error() != nil {
 			logger.Error("mqtt resubscribe failed", "error", token.Error())
+			if w.MQTTSubscriber != nil {
+				w.MQTTSubscriber.SetSubscribed(false)
+			}
 			return
+		}
+		if w.MQTTSubscriber != nil {
+			w.MQTTSubscriber.SetConnected(true)
+			w.MQTTSubscriber.SetSubscribed(true)
 		}
 		logger.Info("mqtt subscribed (resubscribe)", "topic", cfg.MQTT.Topic)
 	}
@@ -145,7 +152,6 @@ func buildAll(ctx context.Context, cfg *config.Config, logger *logging.Logger) (
 		return nil, fmt.Errorf("mqtt client: %w", err)
 	}
 
-	// MQTT Subscriber (used for connection state tracking only)
 	w.MQTTSubscriber = mqttadapter.NewSubscriber(cfg.MQTT, mqttClient, logger)
 
 	// Worker Service
@@ -186,8 +192,8 @@ func buildAll(ctx context.Context, cfg *config.Config, logger *logging.Logger) (
 		w.Metrics,
 		w.TelemetryService,
 		func() error {
-			if w.MQTTSubscriber == nil || !w.MQTTSubscriber.IsConnected() {
-				return fmt.Errorf("mqtt disconnected")
+			if w.MQTTSubscriber == nil || !w.MQTTSubscriber.IsReady() {
+				return fmt.Errorf("mqtt not ready")
 			}
 			return nil
 		},
