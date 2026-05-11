@@ -16,7 +16,7 @@ import (
 func redactHost(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return raw
+		return "<redacted>"
 	}
 	if u.User != nil {
 		u.User = url.UserPassword("", "")

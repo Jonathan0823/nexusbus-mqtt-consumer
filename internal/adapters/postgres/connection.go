@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"modbus-mqtt-consumer/internal/platform/config"
@@ -29,16 +28,7 @@ func NewPool(ctx context.Context, cfg config.PostgresConfig, logger *logging.Log
 		return nil, fmt.Errorf("ping failed: %w", err)
 	}
 
-	dbName := cfg.DSN
-	for i := len(dbName) - 1; i >= 0; i-- {
-		if dbName[i] == '/' {
-			dbName = dbName[i+1:]
-			if q := strings.IndexByte(dbName, '?'); q >= 0 {
-				dbName = dbName[:q]
-			}
-			break
-		}
-	}
+	dbName := poolConfig.ConnConfig.Database
 	logger.Info("postgres connected", "max_conns", cfg.MaxWriteConns, "db", dbName)
 	return pool, nil
 }
