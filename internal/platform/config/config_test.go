@@ -5,6 +5,44 @@ import (
 	"testing"
 )
 
+func TestNormalizeBasePath(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"", ""},
+		{"/", ""},
+		{"/telemetry", "/telemetry"},
+		{"/telemetry/", "/telemetry"},
+		{"telemetry", "/telemetry"},
+		{"  /telemetry  ", "/telemetry"},
+		{"//telemetry", "/telemetry"},
+		{"/telemetry/api", "/telemetry/api"},
+		{"///telemetry", "/telemetry"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			got := normalizeBasePath(tc.input)
+			if got != tc.expected {
+				t.Errorf("normalizeBasePath(%q) = %q, want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestLoad_HTTPBasePathEnv(t *testing.T) {
+	t.Setenv("POSTGRES_DSN", "postgres://user:pass@localhost:5432/test?sslmode=disable")
+	t.Setenv("HTTP_BASE_PATH", "/telemetry")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.HTTP.BasePath != "/telemetry" {
+		t.Errorf("got BasePath %q, want /telemetry", cfg.HTTP.BasePath)
+	}
+}
+
 func TestLoad_InvalidTypedEnvOverrides(t *testing.T) {
 	cases := []struct {
 		name  string

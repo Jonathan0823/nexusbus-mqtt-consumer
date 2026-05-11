@@ -21,6 +21,7 @@ type Config struct {
 	Worker   WorkerConfig
 	HTTP     HTTPConfig
 	Ingest   IngestConfig
+	Cache    CacheConfig
 }
 
 // ServiceRole defines the deployment mode.
@@ -111,13 +112,19 @@ type WorkerConfig struct {
 // HTTPConfig holds HTTP server settings.
 type HTTPConfig struct {
 	ListenAddr         string
-	CORSAllowedOrigins []string // comma-separated list of allowed origins
+	BasePath           string // e.g. "/telemetry"; routes become /telemetry/healthz etc.
+	CORSAllowedOrigins []string
 }
 
 // IngestConfig holds ingest behavior settings.
 type IngestConfig struct {
 	Mode          string        // "normal" or "coalesce"
 	FlushInterval time.Duration // flush interval for coalesce mode
+}
+
+// CacheConfig holds cache behavior settings.
+type CacheConfig struct {
+	ChartTTL time.Duration // TTL for chart cache
 }
 
 // Load reads configuration from environment variables.
@@ -187,11 +194,15 @@ func Default() *Config {
 		},
 		HTTP: HTTPConfig{
 			ListenAddr:         ":8080",
+			BasePath:           "",
 			CORSAllowedOrigins: nil,
 		},
 		Ingest: IngestConfig{
 			Mode:          "normal",
 			FlushInterval: 30 * time.Second,
+		},
+		Cache: CacheConfig{
+			ChartTTL: 30 * time.Second,
 		},
 	}
 }
@@ -243,6 +254,24 @@ func setBoolEnv(key, raw string, dst *bool) error {
 	return nil
 }
 
+func normalizeBasePath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	for strings.HasPrefix(raw, "//") {
+		raw = raw[1:]
+	}
+	if !strings.HasPrefix(raw, "/") {
+		raw = "/" + raw
+	}
+	raw = strings.TrimRight(raw, "/")
+	if raw == "/" {
+		return ""
+	}
+	return raw
+}
+
 // applyEnvOverrides applies environment variable overrides.
 func applyEnvOverrides(cfg *Config) error {
 	if v := os.Getenv("SERVICE_NAME"); v != "" {
@@ -256,6 +285,9 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v := os.Getenv("HTTP_LISTEN_ADDR"); v != "" {
 		cfg.HTTP.ListenAddr = v
+	}
+	if v := os.Getenv("HTTP_BASE_PATH"); v != "" {
+		cfg.HTTP.BasePath = normalizeBasePath(v)
 	}
 	if v := os.Getenv("CORS_ALLOWED_ORIGINS"); v != "" {
 		origins := strings.Split(v, ",")
@@ -397,6 +429,12 @@ func applyEnvOverrides(cfg *Config) error {
 	}
 	if v := os.Getenv("BATCH_SIZE"); v != "" {
 		if err := setIntEnv("BATCH_SIZE", v, &cfg.Postgres.BatchSize); err != nil {
+			return err
+		}
+	}
+
+	if v := os.Getenv("CACHE_CHART_TTL"); v != "" {
+		if err := setDurationEnv("CACHE_CHART_TTL", v, &cfg.Cache.ChartTTL); err != nil {
 			return err
 		}
 	}
