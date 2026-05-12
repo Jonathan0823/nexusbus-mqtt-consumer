@@ -28,6 +28,7 @@ func NewPool(ctx context.Context, cfg config.PostgresConfig, logger *logging.Log
 		return nil, fmt.Errorf("ping failed: %w", err)
 	}
 
-	logger.Info("postgres connected", "max_conns", cfg.MaxWriteConns)
+	dbName := poolConfig.ConnConfig.Database
+	logger.Info("postgres connected", "max_conns", cfg.MaxWriteConns, "db", dbName)
 	return pool, nil
 }

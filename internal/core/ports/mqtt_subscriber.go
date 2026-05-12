@@ -10,8 +10,8 @@ import (
 type MQTTSubscriber interface {
 	// Subscribe connects to the broker and starts consuming messages.
 	Subscribe(ctx context.Context, handler func(msg domain.RawTelemetryPayload) error) error
-	// IsConnected returns true if the client is connected.
-	IsConnected() bool
+	// IsReady returns true if the client is connected and subscribed to the topic.
+	IsReady() bool
 	// Close disconnects from the broker.
 	Close() error
 }
